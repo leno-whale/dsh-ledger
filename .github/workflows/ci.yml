@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 没有运行时依赖，跳过 install
+        run: node --version
+
+      - name: 测试
+        working-directory: plugin
+        run: npm test
+
+      - name: 语法自检（lib 每个文件都要能被解析）
+        working-directory: plugin
+        shell: bash
+        run: |
+          for f in lib/*.js; do
+            node --check "$f" || exit 1
+          done
+
+      - name: 干净安装冒烟（临时 DSH_HOME，不碰真实目录）
+        working-directory: plugin
+        shell: bash
+        run: |
+          export DSH_HOME="$(mktemp -d)"
+          node -e "
+            import('./lib/config.js').then(async ({ resolveConfig }) => {
+              const { Store } = await import('./lib/store.js');
+              const cfg = resolveConfig({});
+              if (cfg.autoBackup !== true) throw new Error('autoBackup 默认应为 true');
+              if (cfg.sayDir !== '') throw new Error('默认不启用收工闸');
+              const store = new Store(cfg, { now: () => new Date() });
+              store.ensureDirs();
+              console.log('ok', cfg.dataDir);
+            });
+          "
