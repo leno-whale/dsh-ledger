@@ -26,8 +26,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test --test-isolation=none \"test/*.test.js\"",
-    "test:isolated": "node --test test/"
+    "test": "node --test"
   },
   "engines": {
     "node": ">=22"
