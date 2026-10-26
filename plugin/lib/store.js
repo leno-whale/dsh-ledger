@@ -421,8 +421,13 @@ export class Store {
 
   /* ---------------------------------- 计数 ---------------------------------- */
 
-  counts(today = this.today()) {
+  /**
+   * @param {string} [today]
+   * @param {{all?: string[], modified?: string[]}} [git] git 看到的改动（all＝含新建，modified＝已存在文件的改动）
+   */
+  counts(today = this.today(), git = {}) {
     const manifest = this.manifestRows().filter((r) => this.dateOf(r.t) === today);
+    const editRows = manifest.filter((r) => r.kind === 'edit').map((r) => r.path);
     // 改 = 当日动过的去重路径数；导入的备份行也贡献一个路径，
     // 否则历史导入会显示成“改0 备9”这种更假的账。
     const edited = new Set(
@@ -432,7 +437,24 @@ export class Store {
         )
         .map((r) => r.path),
     );
+    // 账本之外的证人（git）：改过但没经过插件的文件也要算进来，
+    // 否则「改N」永远是账本自己给自己报的数。
+    const fromGit = [];
+    for (const p of Array.isArray(git?.all) ? git.all : []) {
+      if (!p) continue;
+      const abs = String(p);
+      if (!edited.has(abs)) fromGit.push(abs);
+      edited.add(abs);
+    }
     const edits = edited.size;
+    // 有改没备份：今天「改过已有文件」、但 manifest 里没有它的备份行。
+    // 只看已存在文件的改动——新建文件本来没有原件，不该被算成漏备份。
+    const backedUp = new Set(manifest.filter((r) => r.kind === 'backup').map((r) => r.path));
+    const touched = [
+      ...editRows,
+      ...(Array.isArray(git?.modified) ? git.modified : []),
+    ];
+    const unbacked = [...new Set(touched)].filter((p) => !backedUp.has(p));
     const backups = manifest.filter((r) => r.kind === 'backup').length;
     const imported = manifest.filter((r) => r.kind === 'backup' && r.imported).length;
     const judged = this.readJsonl(this.criteriaLogFile, { recordCorruption: false })
@@ -446,6 +468,7 @@ export class Store {
       .rows.filter((r) => this.dateOf(r.t) === today).length;
     return {
       edits, backups, imported, judged, errors, errorsTotal, conflicts,
+      byGit: fromGit.length, unbacked,
     };
   }
 

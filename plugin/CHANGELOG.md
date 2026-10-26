@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 0.4.0 — 未发布
+
+让「改N」有第二个证人。
+
+**新增**
+
+- `lib/git.js`：`collectGitChanges(config, today)` 去 `watchRepos` 列的 git 仓库里查 `git status --porcelain -z` 与当天的提交，返回 `{all, modified, repos, skipped, errors}`；零依赖，只调系统 git，单仓库 8 秒超时，结果缓存 60 秒（`clearGitCache()` 可清）。
+- `store.counts(today, git)`：`改N` 变成「账本记到的 ∪ git 看见的」；新增 `byGit`（账本没记到的改动数）与 `unbacked`（今天改过已有文件、但没有备份行）。
+- `ledger_today` 新增两行告警：`⚠有改没备份：<前三个文件名> 等N个`、`⚠git 账读不到：<第一个错误>`。
+- `test/git.test.js`：6 项（无配置 / 已跟踪文件改动 / 新建未跟踪 / 非仓库 / 缓存与 force / counts 与 unbacked）。
+
+**行为**
+
+- `??`（新建未跟踪）只算「改」，不算「有改没备份」——没有原件可备。`D`（已删除）两边都不算。
+
 ## 0.3.0 — 2026-10-26
 
 面向「别人也能装」，不是只在我这台机器上跑。

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { truncate } from './store.js';
+import { collectGitChanges } from './git.js';
 
 const LEVELS = ['P0', 'P1', 'P2'];
 const ID_RE = /^[ABC]\d+$/;
@@ -86,7 +87,9 @@ export function createTools(store, config) {
         });
       }
       const today = store.today();
-      const counts = store.counts(today);
+      // 账本之外的证人：git 看见的改动也算进「改N」，并且能指出「改了没备份」。
+      const git = collectGitChanges(config, today);
+      const counts = store.counts(today, git);
       const totalErrors = store.unresolvedErrors().length;
       const hasEvent = store.hasEventFile(today);
       const importedNote = counts.imported > 0 ? `（含${counts.imported}导入）` : '';
@@ -103,6 +106,12 @@ export function createTools(store, config) {
       if (orphan.length > 0) lines.push(`⚠孤儿规矩（退休但无 successor）：${orphan.join(' ')}`);
       const broken = store.brokenBackups().length;
       if (broken > 0) lines.push(`⚠备份记录已失效（.bak 不存在）：${broken} 条`);
+      if (counts.unbacked.length > 0) {
+        const names = counts.unbacked.slice(0, 3).map((p) => truncate(p.split(/[\\/]/).pop(), 16));
+        const more = counts.unbacked.length > 3 ? ` 等${counts.unbacked.length}个` : '';
+        lines.push(`⚠有改没备份：${names.join(' ')}${more}`);
+      }
+      if (git.errors.length > 0) lines.push(`⚠git 账读不到：${truncate(git.errors[0], 40)}`);
       const usage = store.ruleUsage();
       const top = Object.entries(usage)
         .sort((a, b) => (b[1]?.n ?? 0) - (a[1]?.n ?? 0))
