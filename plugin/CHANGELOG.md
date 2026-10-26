@@ -8,7 +8,7 @@ try/catch，写完写 `ledger-state.json` 与 `ledger-errors.jsonl`（`type:"loa
 收工闸触发条件从「今天没有事件文件」改成「今天账上一笔都没有」，并加 `minIntervalMs`（默认 1h）。
 manifest 新增 `kind:"change"`（`source: gate|backfill`），与 `kind:"backup"` 分开计。
 
-注：这一批改动在验收表里被叫作「v0.3」（对应 `docs/验收标准-v0.3.md`），但它包含 0.4.x 已落地的
+注：这一批改动在验收表里被叫作「v0.3」（对应 `../docs/验收标准.md`），但它包含 0.4.x 已落地的
 git 证人、跨进程锁、备份清理，而且是 `main` 上 `0.4.1` 之后的新内容——所以版本号接在 `0.4.1`
 后面，定为 **0.5.0**。分支名 `feat/ledger-v0.3` 保留不改（它指向的是那批验收单）。
 

@@ -154,7 +154,7 @@ dsh plugin --profile desktop remove dsh-ledger
 ```
 plugin/          发布物（lib/、tools/、cordis.patch.yml、package.json）
 plugin/tools/    三个离线 CLI
-docs/            设计/验收/审核过程文档（含 v0.3 设计说明）
+docs/            先读这三份：设计说明 / 验收标准 / 验收结论（索引在 docs/README.md）
 _probe/          开发期一次性探针（不发布，不进 git）
 ```
 
