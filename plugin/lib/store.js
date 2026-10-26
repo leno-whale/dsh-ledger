@@ -86,6 +86,9 @@ export class Store {
     this.undoneFile = path.join(data, FILES.undone);
     this.backupRoot = config.backupRoot || path.join(home, 'backup');
     this.injectStateFile = path.join(data, FILES.injectState);
+    // 跨进程锁：放在 dataDir 下，同一本账只有一个锁
+    this.lockPath = path.join(data, '.lock');
+    this.lockDepth = 0;
     // 空字符串＝该功能关着（默认），不再写死任何个人目录
     this.rulesDir = config.rulesDir || '';
     this.sayDir = config.sayDir || '';
@@ -206,11 +209,14 @@ export class Store {
 
   appendJsonl(file, row, options = {}) {
     const record = options.recordCorruption !== false;
-    const { rows, bad } = this.readJsonl(file, { recordCorruption: false });
-    if (bad > 0 && record) this.noteCorruption(file, bad);
-    const body = rows.map((r) => JSON.stringify(r));
-    body.push(JSON.stringify(row));
-    this.atomicWrite(file, `${body.join('\n')}\n`);
+    return this.withLock(() => {
+      const { rows, bad } = this.readJsonl(file, { recordCorruption: false });
+      if (bad > 0 && record) this.noteCorruption(file, bad);
+      const body = rows.map((r) => JSON.stringify(r));
+      body.push(JSON.stringify(row));
+      this.atomicWrite(file, `${body.join('\n')}\n`);
+      return row;
+    });
   }
 
   /**
@@ -219,13 +225,73 @@ export class Store {
    * 避免"读全量再重写"把既有坏行/并发写入的内容丢掉（S3）。
    */
   appendLine(file, row) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const fd = fs.openSync(file, 'a');
+    return this.withLock(() => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const fd = fs.openSync(file, 'a');
+      try {
+        fs.writeFileSync(fd, `${JSON.stringify(row)}\n`, 'utf8');
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      return row;
+    });
+  }
+
+  /**
+   * 跨进程互斥。DSH 一般单会话，但同一台机器开两个 profile /
+   * 插件和 CLI 同时写同一本账，就会互相盖。
+   *
+   * 用 `<dataDir>/.lock` 独占创建；持有超过 staleMs 视为崩溃残留，抢过来。
+   * 同步实现：guard 必须同步，所以这里用 Atomics.wait 小睡。
+   * 同类重入按深度放行（appendJsonl 里会调 noteCorruption → 又写账）。
+   */
+  withLock(fn, options = {}) {
+    const timeoutMs = options.timeoutMs ?? 3000;
+    const staleMs = options.staleMs ?? 30000;
+    if (this.lockDepth > 0) {
+      this.lockDepth += 1;
+      try {
+        return fn();
+      } finally {
+        this.lockDepth -= 1;
+      }
+    }
+    fs.mkdirSync(this.dataDir, { recursive: true });
+    const started = Date.now();
+    for (;;) {
+      try {
+        const fd = fs.openSync(this.lockPath, 'wx');
+        try {
+          fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, t: Date.now() }), 'utf8');
+        } finally {
+          fs.closeSync(fd);
+        }
+        break;
+      } catch (error) {
+        if (!error || error.code !== 'EEXIST') throw error;
+        let stale = false;
+        try {
+          stale = Date.now() - fs.statSync(this.lockPath).mtimeMs > staleMs;
+        } catch {
+          continue; // 刚被别人放掉，重试即可
+        }
+        if (stale) {
+          try { fs.unlinkSync(this.lockPath); } catch { /* 别人先删了 */ }
+          continue;
+        }
+        if (Date.now() - started > timeoutMs) {
+          throw new Error(`等锁超时（${this.lockPath}，${timeoutMs}ms）`);
+        }
+        sleepSync(15);
+      }
+    }
+    this.lockDepth = 1;
     try {
-      fs.writeFileSync(fd, `${JSON.stringify(row)}\n`, 'utf8');
-      fs.fsyncSync(fd);
+      return fn();
     } finally {
-      fs.closeSync(fd);
+      this.lockDepth = 0;
+      try { fs.unlinkSync(this.lockPath); } catch { /* 已被清掉 */ }
     }
   }
 
