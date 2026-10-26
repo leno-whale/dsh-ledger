@@ -8,7 +8,7 @@ import { createInjection } from './inject.js';
 import { createTools } from './tools.js';
 
 /** v0.3：与 package.json 同步；状态文件里也写这一份，便于离线核对。 */
-export const VERSION = '0.3.0';
+export const VERSION = '0.5.0';
 
 /**
  * 必须先声明 tools 依赖，cordis 才会在 apply 前注入 ctx.tools。
@@ -110,12 +110,15 @@ export default {
 
     run('injection', () => {
       let systemPrompt;
+      // 两行都放进 try：没有 inject 'systemPrompt' 时，`ctx.systemPrompt` 这个属性访问
+      // 本身就会抛（cordis 代理的 "cannot get property … without inject"），
+      // 漏在 try 外面会让整段注入静默失败。
       try {
         systemPrompt = typeof ctx?.get === 'function' ? ctx.get('systemPrompt') : undefined;
+        if (!systemPrompt || typeof systemPrompt.section !== 'function') systemPrompt = ctx?.systemPrompt;
       } catch {
         systemPrompt = undefined;
       }
-      if (!systemPrompt || typeof systemPrompt.section !== 'function') systemPrompt = ctx?.systemPrompt;
       if (!systemPrompt || typeof systemPrompt.section !== 'function') {
         throw new Error('systemPrompt 服务不可用（可选依赖，跳过注入）');
       }

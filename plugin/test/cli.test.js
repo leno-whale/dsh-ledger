@@ -93,7 +93,7 @@ test('S7: apply() 写 state 后 status.mjs 退出 0，并显示五段状态', ()
     assert.equal(result.status, 0, result.err);
     assert.match(result.out, /state：/);
     assert.match(result.out, /segments: tools=ok guard=ok injection=ok turnStopping=ok postExecute=ok/);
-    assert.match(result.out, /version=0\.3\.0/);
+    assert.match(result.out, /version=0\.5\.0/);
     assert.match(result.out, /今日：改0 备0/);
   } finally {
     env.cleanup();
@@ -110,7 +110,7 @@ test('S7: status.mjs 的 --json 输出可解析，且包含备份数与今日行
     const parsed = JSON.parse(result.out);
     assert.equal(parsed.module.ok, true);
     assert.equal(parsed.state.exists, true);
-    assert.equal(parsed.state.content.version, '0.3.0');
+    assert.equal(parsed.state.content.version, '0.5.0');
     assert.equal(parsed.backups.files, 0);
     assert.match(parsed.today.line, /^改0 备0/);
   } finally {
