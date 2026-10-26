@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 0.4.1 — 2026-10-26
+
+CI 抓到的 Windows 坑：`withLock()` 抢锁时 `openSync(path,'wx')` 在 Windows 上可能抛
+`EPERM`/`EACCES`（文件正被别人持有或正在被删），不一定是我们预期的 `EEXIST`。原来只认
+`EEXIST`、其余一律往上抛——于是 windows/node24 那一格里两个进程同时写账，整条测试挂掉；
+放到真实使用里就是「另一个会话正在写账时，我这次写直接失败」。
+
+**修复**
+
+- `store.withLock()`：`EEXIST` / `EPERM` / `EACCES` 一律当「锁被占用」处理——查残留、等 15ms、超时前重试。
+
 ## 0.4.0 — 未发布
 
 三刀：让「改N」有第二个证人、让并发写不互相盖、让备份可清、让文件名不再叫 `whale-`。

@@ -1,6 +1,6 @@
 {
   "name": "dsh-ledger",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "账房：改文件前先备份、发帖前先给依据、收工对账，把「改了什么、没做什么」变成可查的本地账。",
   "keywords": [
     "dsh",

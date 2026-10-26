@@ -495,7 +495,11 @@ export class Store {
         }
         break;
       } catch (error) {
-        if (!error || error.code !== 'EEXIST') throw error;
+        // Windows 上「别人正持有/正在删」这个文件时，openSync('wx') 抛的常常是
+        // EPERM/EACCES 而不是 EEXIST（CI 的 windows/node24 就是这么挂的）。
+        // 这三种都当「锁已被占用」处理：查残留、等一等、再试。
+        const busy = error && (error.code === 'EEXIST' || error.code === 'EPERM' || error.code === 'EACCES');
+        if (!busy) throw error;
         let stale = false;
         try {
           stale = Date.now() - fs.statSync(this.lockPath).mtimeMs > staleMs;
