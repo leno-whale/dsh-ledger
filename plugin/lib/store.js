@@ -35,6 +35,33 @@ function isObj(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+const RETRYABLE_RENAME = new Set(['EPERM', 'EBUSY', 'EACCES', 'EXDEV']);
+
+/** 同步小睡（不引入依赖，也不用 async）。 */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Windows 上 rename 会被杀软/索引器临时占住，报 EPERM/EBUSY。
+ * 这不是逻辑错，是「文件正被别的手拿着」，退一步重试就好；
+ * 重试几次还不行才抛——抛出去就是真的写失败了。
+ */
+export function renameWithRetry(from, to, attempts = 6) {
+  let last;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (error) {
+      last = error;
+      if (!error || !RETRYABLE_RENAME.has(error.code)) throw error;
+      sleepSync(10 * (i + 1));
+    }
+  }
+  throw last;
+}
+
 /**
  * 数据层：全部同步 API（guard 必须是同步函数）。
  * 每个文件写入都走 tmp -> fsync -> rename，读 JSONL 时跳过坏行。
@@ -124,7 +151,7 @@ export class Store {
       fs.fsyncSync(fd);
       fs.closeSync(fd);
       fd = undefined;
-      fs.renameSync(tmp, file);
+      renameWithRetry(tmp, file);
     } catch (error) {
       if (fd !== undefined) {
         try { fs.closeSync(fd); } catch { /* ignore */ }
@@ -141,7 +168,7 @@ export class Store {
       fs.copyFileSync(src, tmp);
       const fd = fs.openSync(tmp, 'r+');
       try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      fs.renameSync(tmp, dest);
+      renameWithRetry(tmp, dest);
     } catch (error) {
       try { fs.unlinkSync(tmp); } catch { /* ignore */ }
       throw error;

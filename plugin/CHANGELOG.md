@@ -18,6 +18,7 @@
 **修**
 
 - `npm test` 改成 `node --test`：`--test-isolation=none` 在 Node 22 上是 `bad option`，CI 的 22 两格全挂（24 通过）。本地开发机是 24，所以没发现——这条写进 CI 的意义就是它。
+- `renameWithRetry()`：Windows 上 `rename` 会被杀软/索引器临时占住，偶发 `EPERM`，直接把一次记账写失败（本地连跑 6 次抓到 2 次）。现在对 `EPERM`/`EBUSY`/`EACCES`/`EXDEV` 退一步重试（最多 6 次，10–60ms 递增），其余错误照旧直接抛。`atomicWrite` 与 `atomicCopy` 都走它。
 
 ## 0.3.0 — 2026-10-26
 
