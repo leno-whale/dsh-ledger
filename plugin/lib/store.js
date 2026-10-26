@@ -288,12 +288,16 @@ export class Store {
       }
     }
 
-    // 每个源文件的最新一份：按 mtime 取最大
+    // 每个源文件的最新一份：先比 mtime；同一毫秒再按日期/文件名定序（CI 上两次写会同毫秒）
     const newestBySource = new Map();
     for (const f of files) {
       const source = path.basename(f.name).replace(/\.bak$/, '').replace(/-\d+$/, '');
       const prev = newestBySource.get(source);
-      if (!prev || f.mtimeMs > prev.mtimeMs) newestBySource.set(source, f);
+      const newer = !prev
+        || f.mtimeMs > prev.mtimeMs
+        || (f.mtimeMs === prev.mtimeMs && (f.date > prev.date
+          || (f.date === prev.date && f.name > prev.name)));
+      if (newer) newestBySource.set(source, f);
     }
     const protectedAbs = new Set([...newestBySource.values()].map((f) => f.abs));
 

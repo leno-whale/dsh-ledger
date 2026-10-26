@@ -20,6 +20,13 @@ function putBackup(env, date, name, body = 'x') {
   return file;
 }
 
+/** 显式给 mtime：CI 上两次写能落在同一毫秒，不能靠「谁后写」定新旧 */
+function age(file, daysAgo) {
+  const t = new Date(Date.now() - daysAgo * 24 * 3600 * 1000);
+  fs.utimesSync(file, t, t);
+  return file;
+}
+
 /** 造出「升级前」的现场：新名字的文件不存在，只有老的 whale-* */
 function asLegacy(env) {
   for (const name of Object.values(FILES)) {
@@ -91,8 +98,8 @@ test('只有一个副本的源文件，过期也不删（最新一份永远保�
 test('dryRun 只算不删', () => {
   const env = makeEnv();
   try {
-    const older = putBackup(env, '2026-09-01', 'a.md.bak');
-    putBackup(env, '2026-09-02', 'a.md-2.bak');
+    const older = age(putBackup(env, '2026-09-01', 'a.md.bak'), 3);
+    age(putBackup(env, '2026-09-02', 'a.md-2.bak'), 1);
     const result = env.store.pruneBackups({ dryRun: true, keepDays: 10 });
     assert.equal(result.removed.length, 1);
     assert.equal(result.removed[0].date, '2026-09-01');
@@ -105,8 +112,8 @@ test('dryRun 只算不删', () => {
 test('真删：过期目录里较旧的那份删掉，最新一份留下', () => {
   const env = makeEnv();
   try {
-    const older = putBackup(env, '2026-09-01', 'a.md.bak');
-    const newer = putBackup(env, '2026-09-02', 'a.md-2.bak');
+    const older = age(putBackup(env, '2026-09-01', 'a.md.bak'), 3);
+    const newer = age(putBackup(env, '2026-09-02', 'a.md-2.bak'), 1);
     const result = env.store.pruneBackups({ dryRun: false, keepDays: 10 });
     assert.equal(result.removed.length, 1);
     assert.equal(fs.existsSync(older), false);
@@ -122,9 +129,9 @@ test('容量超限从最老的开始删，删到不超限为止', () => {
   const env = makeEnv();
   try {
     const big = 'x'.repeat(2048);
-    const first = putBackup(env, '2026-10-01', 'a.md.bak', big);
-    const second = putBackup(env, '2026-10-02', 'a.md-2.bak', big);
-    const third = putBackup(env, '2026-10-03', 'a.md-3.bak', big);
+    const first = age(putBackup(env, '2026-10-01', 'a.md.bak', big), 3);
+    const second = age(putBackup(env, '2026-10-02', 'a.md-2.bak', big), 2);
+    const third = age(putBackup(env, '2026-10-03', 'a.md-3.bak', big), 1);
     const result = env.store.pruneBackups({ dryRun: false, keepDays: 0, maxTotalBytes: 3000 });
     assert.equal(result.removed.length, 2);
     assert.equal(fs.existsSync(first), false);
