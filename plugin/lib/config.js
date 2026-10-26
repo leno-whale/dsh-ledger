@@ -1,0 +1,192 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+/** 数据文件名（放在 dataDir 里；沿用 leno 时代的名字，v0.4 再改名并做迁移） */
+export const FILES = Object.freeze({
+  manifest: 'whale-backup-manifest.jsonl',
+  errors: 'whale-error-ledger.jsonl',
+  criteriaDir: 'whale-criteria',
+  ruleUsage: 'whale-rule-usage.json',
+  criteriaLog: 'whale-criteria-log.jsonl',
+  beliefs: 'whale-beliefs.md',
+  beliefsLog: 'whale-beliefs-log.jsonl',
+  undone: 'whale-undone.jsonl',
+  conflicts: 'whale-conflicts.jsonl',
+  injectState: 'whale-inject-state.json'
+});
+
+/** 默认忽略：跑备份闸时直接跳过（`fnmatch` 语义的极简子集：`*` 只匹配一段） */
+export const DEFAULT_IGNORE = Object.freeze([
+  '.git',
+  '.svn',
+  'node_modules',
+  '.env',
+  '.env.*',
+  '*.pem',
+  '*.key',
+  '*.p12',
+  '*.pfx',
+  'id_rsa',
+  'id_rsa.*',
+  'id_ed25519',
+  'id_ed25519.*',
+  '.npmrc',
+  'credentials.json'
+]);
+
+/**
+ * 缺省配置。
+ * 原则：**没有配置时只做「备份 + 记账」**，任何会 steer / 拦回合的功能都关着。
+ * 报告里必须原样写出这几个默认值。
+ */
+export const DEFAULTS = Object.freeze({
+  dshHome: path.join(os.homedir(), '.dsh'),
+  /** 老式布局的根（`<root>/接口/说`）。默认空＝不启用「说/收工」相关功能。 */
+  workspaceRoot: '',
+  /** 收工闸看的目录；空＝不启用收工闸。 */
+  sayDir: '',
+  /** 规矩目录；空＝规矩清单为空。 */
+  rulesDir: '',
+  autoBackup: true,
+  maxSkipsPerDay: 3,
+  /** null＝跟随系统时区 */
+  timeZone: null,
+  /** 每轮把账注入系统提示；关掉后只能用 ledger_today 手动查 */
+  inject: true,
+  /** 单文件备份上限 */
+  maxBackupBytes: 10 * 1024 * 1024,
+  /** 备份时跳过的路径（子串或 `*` 通配） */
+  ignore: DEFAULT_IGNORE,
+  /** v0.4 用：要从 git 独立取「改了没备份」的仓库根 */
+  watchRepos: []
+});
+
+const BOOL_TRUE = new Set(['1', 'true', 'yes', 'on']);
+const BOOL_FALSE = new Set(['0', 'false', 'no', 'off']);
+
+function asBool(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const key = String(value).trim().toLowerCase();
+  if (BOOL_TRUE.has(key)) return true;
+  if (BOOL_FALSE.has(key)) return false;
+  return fallback;
+}
+
+function asPositiveInt(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const n = Number(value);
+  if (Number.isInteger(n) && n >= 0) return n;
+  return fallback;
+}
+
+function asNonEmptyString(value, fallback) {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback;
+}
+
+function asStringArray(value, fallback) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'string') {
+    const parts = value.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+    return parts.length ? parts : fallback;
+  }
+  if (Array.isArray(value)) {
+    const parts = value.filter((s) => typeof s === 'string' && s.trim() !== '').map((s) => s.trim());
+    return parts.length ? parts : fallback;
+  }
+  return fallback;
+}
+
+/** 系统时区；拿不到就退回 UTC（不写死上海） */
+export function systemTimeZone() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof tz === 'string' && tz ? tz : 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/** 老式散落账本是否在 dshHome 根上（决定默认 dataDir，避免把已有账丢下） */
+function hasLegacyData(home) {
+  return Object.values(FILES).some((name) => {
+    if (name === FILES.criteriaDir) return fs.existsSync(path.join(home, name));
+    return fs.existsSync(path.join(home, name));
+  });
+}
+
+/**
+ * 合并插件配置。
+ * 优先级：显式 config > 环境变量（DSH_HOME / LENO_LEDGER_AUTO_BACKUP）> DEFAULTS。
+ * 相对路径按 process.cwd() 解析成绝对路径（S8）。
+ */
+export function resolveConfig(raw = {}) {
+  const env = process.env;
+  const input = raw && typeof raw === 'object' ? raw : {};
+
+  const dshHome = path.resolve(
+    asNonEmptyString(input.dshHome, asNonEmptyString(env.DSH_HOME, DEFAULTS.dshHome))
+  );
+
+  // 数据目录：显式给了就用；否则**已经有老账就留在根上**，新用户用子目录。
+  let dataDir = input.dataDir ? path.resolve(String(input.dataDir)) : '';
+  if (!dataDir) {
+    const candidate = path.join(dshHome, 'ledger');
+    dataDir = fs.existsSync(candidate) || !hasLegacyData(dshHome) ? candidate : dshHome;
+  }
+
+  const workspaceRoot = input.workspaceRoot
+    ? path.resolve(String(input.workspaceRoot))
+    : DEFAULTS.workspaceRoot;
+
+  // 老式布局兼容：给了 workspaceRoot 就按 `接口/说`、`接口/规矩` 推；
+  // 否则用显式的 sayDir/rulesDir；都没给＝这些功能关着。
+  const legacySay = workspaceRoot ? path.join(workspaceRoot, '接口', '说') : '';
+  const legacyRules = workspaceRoot ? path.join(workspaceRoot, '接口', '规矩') : '';
+  const sayDir = input.sayDir ? path.resolve(String(input.sayDir)) : legacySay;
+  const rulesDir = input.rulesDir ? path.resolve(String(input.rulesDir)) : legacyRules;
+
+  return {
+    dshHome,
+    dataDir,
+    backupRoot: input.backupRoot
+      ? path.resolve(String(input.backupRoot))
+      : path.join(dshHome, 'backup'),
+    beliefsFile: input.beliefsFile
+      ? path.resolve(String(input.beliefsFile))
+      : path.join(dataDir, FILES.beliefs),
+    workspaceRoot,
+    sayDir,
+    rulesDir,
+    autoBackup: asBool(
+      input.autoBackup,
+      asBool(env.LENO_LEDGER_AUTO_BACKUP, asBool(env.LEDGER_AUTO_BACKUP, DEFAULTS.autoBackup))
+    ),
+    maxSkipsPerDay: asPositiveInt(input.maxSkipsPerDay, DEFAULTS.maxSkipsPerDay),
+    timeZone: asNonEmptyString(input.timeZone, asNonEmptyString(env.TZ, systemTimeZone())),
+    inject: asBool(input.inject, DEFAULTS.inject),
+    maxBackupBytes: asPositiveInt(input.maxBackupBytes, DEFAULTS.maxBackupBytes),
+    ignore: asStringArray(input.ignore, DEFAULTS.ignore),
+    watchRepos: asStringArray(input.watchRepos, DEFAULTS.watchRepos)
+  };
+}
+
+/** 极简 glob：`*` 匹配任意非分隔符段，其余按字面比；同时支持不含通配符的「路径里出现该片段」 */
+export function matchIgnore(absPath, patterns) {
+  if (!Array.isArray(patterns) || patterns.length === 0) return false;
+  const norm = String(absPath).replace(/\\/g, '/');
+  const base = norm.slice(norm.lastIndexOf('/') + 1);
+  for (const raw of patterns) {
+    const p = String(raw).replace(/\\/g, '/').trim();
+    if (!p) continue;
+    if (!p.includes('*')) {
+      if (norm.split('/').includes(p) || base === p) return true;
+      continue;
+    }
+    const rx = new RegExp(`^${p.split('*').map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+    if (rx.test(base)) return true;
+  }
+  return false;
+}

@@ -1,0 +1,405 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { truncate } from './store.js';
+
+const LEVELS = ['P0', 'P1', 'P2'];
+const ID_RE = /^[ABC]\d+$/;
+const VERDICTS = ['used', 'overturned', 'guess'];
+const ACTIONS = ['list', 'search', 'add', 'top', 'retire'];
+
+const OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    ok: { type: 'boolean', required: true },
+    text: { type: 'string', required: true },
+    dedup: { type: 'boolean' },
+    backupPath: { type: 'string' },
+    count: { type: 'number' },
+  },
+};
+
+function render(_args, value) {
+  return [{ type: 'text', text: String(value?.text ?? '') }];
+}
+
+function def(name, description, properties, execute) {
+  return {
+    name,
+    description,
+    parameters: { type: 'object', additionalProperties: false, properties },
+    output: { schema: OUTPUT_SCHEMA, render },
+    execute,
+  };
+}
+
+function field(type, description, options = {}) {
+  const spec = { type, description };
+  if (options.required) spec.required = true;
+  if (options.enumValues) spec.enum = options.enumValues;
+  return spec;
+}
+
+function fail(text) {
+  return { ok: false, text };
+}
+
+function pass(text, extra = {}) {
+  return { ok: true, text, ...extra };
+}
+
+function nonEmpty(value) {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function capLines(lines, maxLines, maxChars) {
+  const kept = lines.slice(0, maxLines);
+  let text = kept.join('\n');
+  if (text.length <= maxChars) return text;
+  const [first, ...rest] = kept;
+  const parts = [first];
+  let budget = maxChars - first.length - 1;
+  for (const line of rest) {
+    if (budget <= 1) break;
+    const take = line.length <= budget ? line : truncate(line, budget);
+    parts.push(take);
+    budget -= take.length + 1;
+  }
+  return parts.join('\n');
+}
+
+export function createTools(store, config) {
+  const toolToday = def(
+    'ledger_today',
+    '今天的账：改/备、判断、冲突、错误与未做条数，输出有硬上限。每次开工或收工前调用，先看数再动手。',
+    {},
+    async () => {
+      // 先对账再报数：旧平铺备份账（backup/_manifest.jsonl）补进本 manifest，幂等。
+      try {
+        store.reconcileLegacy();
+      } catch (error) {
+        store.recordError({
+          text: `旧备份账导入失败（已忽略）：${error?.message ?? error}`,
+          source: 'import',
+          level: 'P1',
+        });
+      }
+      const today = store.today();
+      const counts = store.counts(today);
+      const totalErrors = store.unresolvedErrors().length;
+      const hasEvent = store.hasEventFile(today);
+      const importedNote = counts.imported > 0 ? `（含${counts.imported}导入）` : '';
+      const first = `改${counts.edits} 备${counts.backups}${importedNote} | 判断${counts.judged} 记${counts.errors} | 冲突${counts.conflicts} | 今日事件：${hasEvent ? '有' : '无'}`
+        + (totalErrors >= 3 ? ` ⚠错误${totalErrors}` : '');
+      const undone = store.undoneRows();
+      const zero = store.zeroRefRules(7).length;
+      const orphan = store.orphanRetired();
+      const lines = [
+        first,
+        `未做：${undone.length} 条 | 未结错误：${totalErrors} 条 | 近7天0引用规矩：${zero} 条`,
+      ];
+      for (const row of undone.slice(-5)) lines.push(`· ${truncate(row.text, 20)}`);
+      if (orphan.length > 0) lines.push(`⚠孤儿规矩（退休但无 successor）：${orphan.join(' ')}`);
+      const broken = store.brokenBackups().length;
+      if (broken > 0) lines.push(`⚠备份记录已失效（.bak 不存在）：${broken} 条`);
+      const usage = store.ruleUsage();
+      const top = Object.entries(usage)
+        .sort((a, b) => (b[1]?.n ?? 0) - (a[1]?.n ?? 0))
+        .slice(0, 3)
+        .map(([rule, value]) => `${rule}×${value?.n ?? 0}`);
+      if (top.length > 0) lines.push(`规矩引用：${top.join(' ')}`);
+      return pass(capLines(lines, 20, 800));
+    },
+  );
+
+  const toolUndone = def(
+    'ledger_undone',
+    '记一条该做没做的事，只追加不覆盖。发现漏做、答应过却没做时调用。',
+    { text: field('string', '没做的那件事，一句话', { required: true }) },
+    async (args) => {
+      const text = String(args?.text ?? '').trim();
+      if (!text) return fail('text 不能为空');
+      const row = { t: store.nowIso(), text };
+      store.appendLine(store.undoneFile, row);
+      const total = store.undoneRows().length;
+      return pass(`未做已记（共 ${total} 条）：${truncate(text, 60)}`, { count: total });
+    },
+  );
+
+  const toolConflict = def(
+    'ledger_conflict',
+    '记一次分歧：主题、他说的、我认为的、依据。同一主题再次出现时调用，会被提醒写成规则或例外。',
+    {
+      topic: field('string', '分歧主题（同一主题用同一个词）', { required: true }),
+      his: field('string', '他说的/他的判读', { required: true }),
+      mine: field('string', '我认为的/我的判读', { required: true }),
+      basis: field('string', '依据：A/B/C 编号，指不到写「猜」'),
+    },
+    async (args) => {
+      const topic = String(args?.topic ?? '').trim();
+      const his = String(args?.his ?? '').trim();
+      const mine = String(args?.mine ?? '').trim();
+      const basis = String(args?.basis ?? '').trim();
+      if (!topic || !his || !mine) return fail('topic / his / mine 均不能为空');
+      const previous = store.readJsonl(store.conflictsFile, { recordCorruption: false }).rows
+        .filter((row) => row.topic === topic).length;
+      store.appendJsonl(store.conflictsFile, {
+        t: store.nowIso(), topic, his, mine, basis,
+      });
+      const count = previous + 1;
+      const repeat = previous > 0
+        ? `；同一主题第 ${count} 次出现：写成规则或例外，别再每次当场争`
+        : '';
+      return pass(`分歧已记：${truncate(topic, 30)}（第 ${count} 次）${repeat}`, { count });
+    },
+  );
+
+  const toolJudge = def(
+    'ledger_judge',
+    '记一次判断：编号或「猜」+ 四问（谁在收/几个人在看/接法/原话还是复述）+ 依据。下判断之前调用，四问缺一不可。',
+    {
+      id: field('string', '判断依据的编号 A1/B7/C3，指不到就写「猜」', { required: true }),
+      why: field('string', '这次为什么这样判断', { required: true }),
+      who: field('string', '四问①：谁在收（名字，或「没有收件人」）', { required: true }),
+      audience: field('string', '四问②：几个人在看（有人旁观时语气收一格）', { required: true }),
+      approach: field('string', '四问③：报坐标还是接论点（二选一）', { required: true }),
+      verbatim: field('string', '四问④：原话还是我的复述（复述必须标明）', { required: true }),
+      rule: field('string', '显式引用的规矩 id，如 发一条之前（用于计量引用率）'),
+      field: field('string', '场：dm / post / public'),
+      verdict: field('string', '结果：used / overturned / guess', { enumValues: VERDICTS }),
+    },
+    async (args) => {
+      const id = String(args?.id ?? '').trim();
+      if (id !== '猜' && !ID_RE.test(id)) {
+        return fail(`id 必须是 A/B/C+数字（如 B7），或写「猜」；收到：${truncate(id, 20)}`);
+      }
+      const missing = ['why', 'who', 'audience', 'approach', 'verbatim']
+        .filter((key) => !nonEmpty(args?.[key]));
+      if (missing.length > 0) {
+        return fail(`四问与 why 必填，缺：${missing.join(', ')}`);
+      }
+      const verdict = VERDICTS.includes(args?.verdict) ? args.verdict : 'used';
+      const rule = String(args?.rule ?? '').trim();
+      const t = store.nowIso();
+      store.appendJsonl(store.criteriaLogFile, {
+        t,
+        id,
+        why: String(args.why),
+        who: String(args.who),
+        audience: String(args.audience),
+        approach: String(args.approach),
+        verbatim: String(args.verbatim),
+        rule,
+        field: String(args?.field ?? ''),
+        verdict,
+      });
+      store.appendLine(store.beliefsLogFile, { t, id, act: 'judge', verdict, why: String(args.why), rule });
+      let times = 0;
+      if (rule) {
+        const usage = store.ruleUsage();
+        const previous = usage[rule];
+        usage[rule] = { n: (previous?.n ?? 0) + 1, last: t };
+        store.writeJson(store.ruleUsageFile, usage);
+        times = usage[rule].n;
+      }
+      const today = store.counts().judged;
+      return pass(
+        `判断已记：${id}（${verdict}）${rule ? `；规矩 ${rule} 第 ${times} 次` : ''}；今日判断 ${today} 条`,
+        { count: today },
+      );
+    },
+  );
+
+  const toolBelief = def(
+    'ledger_belief',
+    '查/记/退休判据：list、search、add、top、retire。需引用或整理规矩时调用；退休必须给 successor 或 mergeInto。',
+    {
+      action: field('string', '操作：list / search / add / top / retire', {
+        required: true,
+        enumValues: ACTIONS,
+      }),
+      id: field('string', '判据编号，如 B7（add/retire 必填）'),
+      query: field('string', 'search 的检索词'),
+      title: field('string', 'add 的标题'),
+      body: field('string', 'add 的正文/判据'),
+      scope: field('string', '成立范围'),
+      boundary: field('string', '不成立边界'),
+      successor: field('string', 'retire 时取代它的规矩 id'),
+      mergeInto: field('string', 'retire 时合并进的规矩 id'),
+    },
+    async (args) => {
+      const action = String(args?.action ?? '').trim();
+      const id = String(args?.id ?? '').trim();
+      if (!ACTIONS.includes(action)) return fail(`action 必须是 ${ACTIONS.join(' / ')}`);
+
+      if (action === 'list') {
+        const ids = store.beliefIds();
+        const marked = ids.map((item) => {
+          const entry = store.readCriteria(item);
+          if (entry?.retired) return `${item}(退休→${entry.successor || '孤儿'})`;
+          return item;
+        });
+        return pass(`判据 ${ids.length} 条：${truncate(marked.join(' '), 700)}`, { count: ids.length });
+      }
+
+      if (action === 'search') {
+        const query = String(args?.query ?? '').trim();
+        if (!query) return fail('search 需要 query');
+        const hits = [];
+        if (fs.existsSync(store.beliefsFile)) {
+          const lines = fs.readFileSync(store.beliefsFile, 'utf8').split(/\r?\n/);
+          for (let i = 0; i < lines.length && hits.length < 10; i += 1) {
+            if (lines[i].includes(query)) hits.push(`L${i + 1}: ${truncate(lines[i], 60)}`);
+          }
+        }
+        for (const item of store.beliefIds()) {
+          if (hits.length >= 10) break;
+          const entry = store.readCriteria(item);
+          if (entry && entry.text.includes(query)) hits.push(`${item}: ${truncate(entry.title, 50)}`);
+        }
+        return pass(
+          hits.length === 0 ? `没有匹配「${truncate(query, 20)}」的判据` : `匹配 ${hits.length} 条：\n${hits.join('\n')}`,
+          { count: hits.length },
+        );
+      }
+
+      if (action === 'top') {
+        const usage = store.ruleUsage();
+        const rows = Object.entries(usage)
+          .sort((a, b) => (b[1]?.n ?? 0) - (a[1]?.n ?? 0))
+          .slice(0, 10)
+          .map(([rule, value]) => `${rule} ×${value?.n ?? 0}（last ${String(value?.last ?? '').slice(0, 10)}）`);
+        return pass(rows.length === 0 ? '还没有规矩引用记录' : `规矩引用：\n${rows.join('\n')}`, { count: rows.length });
+      }
+
+      if (!ID_RE.test(id)) return fail('id 必须是 A/B/C+数字，如 B7');
+
+      if (action === 'add') {
+        const file = store.criteriaFile(id);
+        if (fs.existsSync(file)) {
+          return fail(`${id} 已存在；要改先 retire（带 successor/mergeInto），不做无痕覆盖`);
+        }
+        const title = String(args?.title ?? '').trim() || id;
+        const lines = [`# ${id} ${title}`, ''];
+        if (nonEmpty(args?.scope)) lines.push(`- scope: ${String(args.scope)}`);
+        if (nonEmpty(args?.boundary)) lines.push(`- boundary: ${String(args.boundary)}`);
+        lines.push('', String(args?.body ?? '').trim(), '');
+        store.atomicWrite(file, `${lines.join('\n')}\n`);
+        store.appendJsonl(store.criteriaLogFile, {
+          t: store.nowIso(), id, event: 'add', title, why: String(args?.body ?? ''),
+        });
+        return pass(`判据已建：${id} ${title}`, { count: store.beliefIds().length });
+      }
+
+      // retire
+      const successor = String(args?.successor ?? '').trim();
+      const mergeInto = String(args?.mergeInto ?? '').trim();
+      if (!successor && !mergeInto) {
+        return fail('retire 必须带 successor 或 mergeInto：规矩只许合并/取代，不许无痕删除');
+      }
+      const file = store.criteriaFile(id);
+      const header = fs.existsSync(file)
+        ? ''
+        : `# ${id}\n\n`;
+      const block = [
+        '',
+        '## 退休',
+        `- retired: true`,
+        `- t: ${store.nowIso()}`,
+        `- successor: ${successor}`,
+        `- mergeInto: ${mergeInto}`,
+        '',
+      ].join('\n');
+      const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+      store.atomicWrite(file, `${existing.trimEnd()}\n${header}${block}`);
+      store.appendManifest({
+        path: file,
+        kind: 'retired',
+        sha256: '',
+        size: 0,
+        mtime: '',
+        id,
+        successor,
+        mergeInto,
+        orphan: !successor,
+      });
+      store.appendJsonl(store.criteriaLogFile, {
+        t: store.nowIso(), id, event: 'retire', successor, mergeInto,
+      });
+      return pass(`判据已退休：${id} → ${successor || mergeInto}；记录已留痕`);
+    },
+  );
+
+  const toolBackup = def(
+    'ledger_backup',
+    '手动补一次备份，写入 backup/<日期>/ 并追加 manifest。备份闸拒绝后按提示调用。',
+    { file_path: field('string', '要备份的文件路径（绝对路径或相对 cwd）', { required: true }) },
+    async (args) => {
+      const raw = String(args?.file_path ?? '').trim();
+      if (!raw) return fail('file_path 不能为空');
+      const abs = path.resolve(raw);
+      if (!fs.existsSync(abs)) return fail(`路径不存在：${abs}`);
+      let stat;
+      try {
+        stat = fs.statSync(abs);
+      } catch (error) {
+        return fail(`无法读取路径：${abs}（${error?.message ?? error}）`);
+      }
+      if (!stat.isFile()) return fail(`不是普通文件：${abs}`);
+      try {
+        const result = store.backupFile(abs);
+        const sha = result.sha256.slice(0, 12);
+        return pass(
+          result.dedup
+            ? `同日同内容已备份，跳过：${result.backupPath}（sha256 ${sha}）`
+            : `已备份：${abs} -> ${result.backupPath}（${result.size} 字节，sha256 ${sha}）`,
+          { dedup: result.dedup, backupPath: result.backupPath },
+        );
+      } catch (error) {
+        return fail(`备份失败：${error?.message ?? error}`);
+      }
+    },
+  );
+
+  const toolError = def(
+    'ledger_error',
+    '记一条错误账（P0/P1/P2）。说错、判错或要跳过今日收工检查时调用；skip_check 每日最多一次。',
+    {
+      text: field('string', '错在哪：我写的/当时判读/真实意思/下次判据', { required: true }),
+      source: field('string', '来源，如 ledger_today 或 turn-gate'),
+      level: field('string', '严重度：P0 / P1 / P2（默认 P1）', { enumValues: LEVELS }),
+      ref: field('string', '相关文件、行号或事件号'),
+      skip_check: field('boolean', 'true = 跳过今日收工检查（写 skipped-check 错误账，每日最多 maxSkipsPerDay 次）'),
+    },
+    async (args) => {
+      const text = String(args?.text ?? '').trim();
+      if (!text) return fail('text 不能为空');
+      if (args?.level !== undefined && !LEVELS.includes(args.level)) {
+        return fail(`level 只能是 ${LEVELS.join(' / ')}；收到：${truncate(String(args.level), 10)}`);
+      }
+      const level = LEVELS.includes(args?.level) ? args.level : 'P1';
+      const source = String(args?.source ?? 'model').trim() || 'model';
+      const ref = String(args?.ref ?? '').trim();
+      if (args?.skip_check === true) {
+        const used = store.todaySkips();
+        if (used >= config.maxSkipsPerDay) {
+          return fail(
+            `今日跳过次数已用完（${used}/${config.maxSkipsPerDay}）：要么记账写事件文件，要么改规矩；不能再跳过`,
+          );
+        }
+        store.recordError({
+          text, source, level, ref, type: 'skipped-check',
+        });
+        return pass(`已跳过今日收工检查（${used + 1}/${config.maxSkipsPerDay}）：${truncate(text, 60)}`);
+      }
+      store.recordError({
+        text, source, level, ref, type: 'error',
+      });
+      const errors = store.counts().errors;
+      return pass(`错误账已记（${level}）：${truncate(text, 60)}；今日错误 ${errors} 条`, { count: errors });
+    },
+  );
+
+  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError];
+}

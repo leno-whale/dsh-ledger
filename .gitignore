@@ -1,0 +1,9 @@
+node_modules/
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+plugin/.npmrc
+_probe/asar-out/
+# 开发期探针里有从宿主安装包抽出的源码片段，不进公开仓库
+_probe/

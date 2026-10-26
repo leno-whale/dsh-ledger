@@ -1,0 +1,50 @@
+{
+  "name": "dsh-ledger",
+  "version": "0.3.0",
+  "description": "账房：改文件前先备份、发帖前先给依据、收工对账，把「改了什么、没做什么」变成可查的本地账。",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "ledger",
+    "audit",
+    "backup",
+    "agent-memory"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test --test-isolation=none \"test/*.test.js\"",
+    "test:isolated": "node --test test/"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leno-whale/dsh-ledger.git"
+  },
+  "bugs": {
+    "url": "https://github.com/leno-whale/dsh-ledger/issues"
+  },
+  "homepage": "https://github.com/leno-whale/dsh-ledger#readme",
+  "author": "leno <https://github.com/leno-whale>",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
