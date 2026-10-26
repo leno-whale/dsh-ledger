@@ -410,5 +410,51 @@ export function createTools(store, config) {
     },
   );
 
-  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError];
+  const toolPrune = def(
+    'ledger_prune',
+    '看/清理备份目录。默认只算不删（dryRun）；每个源文件的最新一份永远保留。',
+    {
+      dryRun: field('boolean', 'true（默认）＝只算不删；false＝真删'),
+      keep_days: field('number', '早于「今天 - keep_days」的备份可删（0＝不按时间清理）'),
+      max_total_mb: field('number', '备份总量上限 MB（0＝不按容量清理）'),
+    },
+    async (args) => {
+      const dryRun = args?.dryRun !== false;
+      const options = { dryRun };
+      if (args?.keep_days !== undefined) {
+        if (!Number.isInteger(args.keep_days) || args.keep_days < 0) return fail('keep_days 要是 ≥0 的整数');
+        options.keepDays = args.keep_days;
+      }
+      if (args?.max_total_mb !== undefined) {
+        if (!Number.isInteger(args.max_total_mb) || args.max_total_mb < 0) return fail('max_total_mb 要是 ≥0 的整数');
+        options.maxTotalBytes = args.max_total_mb * 1024 * 1024;
+      }
+      let result;
+      try {
+        result = store.pruneBackups(options);
+      } catch (error) {
+        return fail(`清理失败：${error?.message ?? error}`);
+      }
+      const stats = store.backupStats();
+      const mb = (n) => `${(n / 1024 / 1024).toFixed(1)}MB`;
+      const head = dryRun
+        ? `备份现状：${stats.files} 个文件 / ${mb(stats.bytes)}（${stats.oldest || '-'} ~ ${stats.newest || '-'}）`
+        : `已清理 ${result.removed.length} 个文件，释放 ${mb(result.freedBytes)}`;
+      const lines = [head];
+      if (dryRun) {
+        lines.push(
+          `可删：${result.removed.length} 个 / ${mb(result.freedBytes)}（保留 ${result.kept} 个）`,
+        );
+        const sample = result.removed.slice(0, 5).map((f) => `  ${f.date}/${f.name}`);
+        if (sample.length > 0) lines.push('将删（最多列 5 条）：', ...sample);
+        if (result.removed.length === 0) lines.push('没有可删的，备份目录不用管。');
+      } else {
+        lines.push(`剩：${mb(result.totalAfter)}（原 ${mb(result.totalBefore)}）`);
+      }
+      if (result.errors.length > 0) lines.push(`⚠ ${result.errors.length} 个文件读不到/删不掉`);
+      return pass(lines.join('\n'), { count: result.removed.length });
+    },
+  );
+
+  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError, toolPrune];
 }

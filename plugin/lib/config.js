@@ -4,16 +4,32 @@ import path from 'node:path';
 
 /** 数据文件名（放在 dataDir 里；沿用 leno 时代的名字，v0.4 再改名并做迁移） */
 export const FILES = Object.freeze({
-  manifest: 'whale-backup-manifest.jsonl',
-  errors: 'whale-error-ledger.jsonl',
-  criteriaDir: 'whale-criteria',
-  ruleUsage: 'whale-rule-usage.json',
-  criteriaLog: 'whale-criteria-log.jsonl',
+  manifest: 'ledger-manifest.jsonl',
+  errors: 'ledger-errors.jsonl',
+  criteriaDir: 'ledger-criteria',
+  ruleUsage: 'ledger-rule-usage.json',
+  criteriaLog: 'ledger-criteria-log.jsonl',
   beliefs: 'whale-beliefs.md',
   beliefsLog: 'whale-beliefs-log.jsonl',
   undone: 'whale-undone.jsonl',
-  conflicts: 'whale-conflicts.jsonl',
-  injectState: 'whale-inject-state.json'
+  conflicts: 'ledger-conflicts.jsonl',
+  injectState: 'ledger-inject-state.json',
+  pruneLog: 'ledger-prune-log.jsonl'
+});
+
+/**
+ * v0.3 及以前的文件名 → 现在的名字。
+ * 只搬插件自己拥有的文件；`whale-beliefs.md` / `whale-beliefs-log.jsonl` /
+ * `whale-undone.jsonl` 是使用者自己的本子，保持原名（要改走 config 覆盖）。
+ */
+export const LEGACY_NAMES = Object.freeze({
+  'whale-backup-manifest.jsonl': FILES.manifest,
+  'whale-error-ledger.jsonl': FILES.errors,
+  'whale-criteria': FILES.criteriaDir,
+  'whale-rule-usage.json': FILES.ruleUsage,
+  'whale-criteria-log.jsonl': FILES.criteriaLog,
+  'whale-conflicts.jsonl': FILES.conflicts,
+  'whale-inject-state.json': FILES.injectState
 });
 
 /** 默认忽略：跑备份闸时直接跳过（`fnmatch` 语义的极简子集：`*` 只匹配一段） */
@@ -56,6 +72,10 @@ export const DEFAULTS = Object.freeze({
   inject: true,
   /** 单文件备份上限 */
   maxBackupBytes: 10 * 1024 * 1024,
+  /** 备份保留天数（0＝不按时间清理） */
+  backupKeepDays: 30,
+  /** 备份总量上限，MB（0＝不按容量清理） */
+  backupMaxTotalMb: 500,
   /** 备份时跳过的路径（子串或 `*` 通配） */
   ignore: DEFAULT_IGNORE,
   /** v0.4 用：要从 git 独立取「改了没备份」的仓库根 */
@@ -111,10 +131,9 @@ export function systemTimeZone() {
 
 /** 老式散落账本是否在 dshHome 根上（决定默认 dataDir，避免把已有账丢下） */
 function hasLegacyData(home) {
-  return Object.values(FILES).some((name) => {
-    if (name === FILES.criteriaDir) return fs.existsSync(path.join(home, name));
-    return fs.existsSync(path.join(home, name));
-  });
+  // 两种「老」都算：v0.3 的 whale-* 名字，和已经搬到新名字的散落账。
+  const names = [...Object.values(FILES), ...Object.keys(LEGACY_NAMES)];
+  return names.some((name) => fs.existsSync(path.join(home, name)));
 }
 
 /**
@@ -168,6 +187,8 @@ export function resolveConfig(raw = {}) {
     timeZone: asNonEmptyString(input.timeZone, asNonEmptyString(env.TZ, systemTimeZone())),
     inject: asBool(input.inject, DEFAULTS.inject),
     maxBackupBytes: asPositiveInt(input.maxBackupBytes, DEFAULTS.maxBackupBytes),
+    backupKeepDays: asPositiveInt(input.backupKeepDays, DEFAULTS.backupKeepDays),
+    backupMaxTotalMb: asPositiveInt(input.backupMaxTotalMb, DEFAULTS.backupMaxTotalMb),
     ignore: asStringArray(input.ignore, DEFAULTS.ignore),
     watchRepos: asStringArray(input.watchRepos, DEFAULTS.watchRepos)
   };

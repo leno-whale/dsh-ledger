@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { FILES } from './config.js';
+import { FILES, LEGACY_NAMES } from './config.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -86,6 +86,7 @@ export class Store {
     this.undoneFile = path.join(data, FILES.undone);
     this.backupRoot = config.backupRoot || path.join(home, 'backup');
     this.injectStateFile = path.join(data, FILES.injectState);
+    this.pruneLogFile = path.join(data, FILES.pruneLog);
     // 跨进程锁：放在 dataDir 下，同一本账只有一个锁
     this.lockPath = path.join(data, '.lock');
     this.lockDepth = 0;
@@ -126,8 +127,9 @@ export class Store {
     for (const dir of [this.dshHome, this.dataDir, this.criteriaDir, this.backupRoot]) {
       fs.mkdirSync(dir, { recursive: true });
     }
+    this.migrateLegacyNames();
     // S2：六类数据文件在插件启用时就可发现；用追加模式打开，绝不截断已有内容。
-    for (const file of [this.conflictsFile, this.manifestFile, this.errorFile, this.criteriaLogFile]) {
+    for (const file of [this.conflictsFile, this.manifestFile, this.errorFile, this.criteriaLogFile, this.pruneLogFile]) {
       try {
         fs.closeSync(fs.openSync(file, 'a'));
       } catch {
@@ -140,6 +142,226 @@ export class Store {
     } catch {
       /* 同上 */
     }
+  }
+
+  /* ------------------------------ 老文件名迁移 ------------------------------ */
+
+  /**
+   * v0.4③：把 v0.3 及以前的 `whale-*` 文件搬到现在的名字。
+   * 只搬插件自己拥有的账；使用者自己的本子（beliefs / beliefs-log / undone）不动。
+   * 两边都存在时不合并、不删——记一条错误账，等人来看（合并错一次就丢历史）。
+   */
+  migrateLegacyNames() {
+    const actions = [];
+    for (const [oldName, newName] of Object.entries(LEGACY_NAMES)) {
+      if (oldName === newName) continue;
+      const from = path.join(this.dataDir, oldName);
+      const to = path.join(this.dataDir, newName);
+      if (!fs.existsSync(from)) continue;
+      if (!fs.existsSync(to)) {
+        try {
+          fs.renameSync(from, to);
+          actions.push({ from: oldName, to: newName, action: 'renamed' });
+        } catch (error) {
+          actions.push({ from: oldName, to: newName, action: 'failed', error: String(error?.message ?? error) });
+        }
+        continue;
+      }
+      actions.push({ from: oldName, to: newName, action: 'kept-both' });
+    }
+    const needsHuman = actions.filter((a) => a.action !== 'renamed');
+    if (needsHuman.length > 0) {
+      const summary = needsHuman
+        .map((a) => `${a.from}${a.action === 'kept-both' ? '（新旧都在，未合并）' : `（搬不动：${a.error}）`}`)
+        .join('；');
+      try {
+        this.recordError({
+          text: `文件名迁移没做完：${summary}`,
+          source: 'migrate',
+          level: 'P1',
+          ref: this.dataDir,
+          type: 'migration',
+        });
+      } catch {
+        /* 记不上也不能挡住启动 */
+      }
+    }
+    return actions;
+  }
+
+  /* -------------------------------- 备份清理 -------------------------------- */
+
+  /** 备份目录的规模：按日期目录统计，顺带给出最老/最新。 */
+  backupStats() {
+    const root = this.backupRoot;
+    const result = { dirs: [], files: 0, bytes: 0, oldest: '', newest: '', errors: [] };
+    let dirs = [];
+    try {
+      dirs = fs.readdirSync(root, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
+        .map((d) => d.name)
+        .sort();
+    } catch (error) {
+      if (error && error.code !== 'ENOENT') result.errors.push(String(error.message ?? error));
+      return result;
+    }
+    for (const date of dirs) {
+      let count = 0;
+      let bytes = 0;
+      let entries = [];
+      try {
+        entries = fs.readdirSync(path.join(root, date));
+      } catch (error) {
+        result.errors.push(`${date}: ${String(error?.message ?? error)}`);
+        continue;
+      }
+      for (const name of entries) {
+        try {
+          const st = fs.statSync(path.join(root, date, name));
+          if (!st.isFile()) continue;
+          count += 1;
+          bytes += st.size;
+        } catch {
+          /* 读不到就不算 */
+        }
+      }
+      result.dirs.push({ date, files: count, bytes });
+      result.files += count;
+      result.bytes += bytes;
+    }
+    if (result.dirs.length > 0) {
+      result.oldest = result.dirs[0].date;
+      result.newest = result.dirs[result.dirs.length - 1].date;
+    }
+    return result;
+  }
+
+  /**
+   * 清理旧备份。默认 **dryRun**：只算不删。
+   * 两条政策，都不许「一个源文件一份不留」：
+   *   - keepDays：早于「今天 - keepDays」的日期目录里的文件可以删；
+   *   - maxTotalBytes：总量超限时从最老的日期开始删，直到达标。
+   * 每个源文件（去掉 `-2`/`-3` 后缀）的最新一份**永远保留**。
+   */
+  pruneBackups(options = {}) {
+    const dryRun = options.dryRun !== false;
+    const keepDays = Number.isInteger(options.keepDays)
+      ? options.keepDays
+      : (this.config.backupKeepDays ?? 0);
+    const maxTotalBytes = Number.isInteger(options.maxTotalBytes)
+      ? options.maxTotalBytes
+      : (this.config.backupMaxTotalMb ?? 0) * 1024 * 1024;
+    const root = this.backupRoot;
+    const today = this.today();
+    const cutoff = keepDays > 0
+      ? dateInZone(new Date(this.now().getTime() - keepDays * DAY_MS), this.config.timeZone)
+      : '';
+
+    const files = [];
+    let dirs = [];
+    try {
+      dirs = fs.readdirSync(root, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
+        .map((d) => d.name)
+        .sort();
+    } catch {
+      return { dryRun, removed: [], kept: 0, freedBytes: 0, totalBefore: 0, totalAfter: 0, errors: [] };
+    }
+    const errors = [];
+    for (const date of dirs) {
+      let names = [];
+      try {
+        names = fs.readdirSync(path.join(root, date));
+      } catch (error) {
+        errors.push(`${date}: ${String(error?.message ?? error)}`);
+        continue;
+      }
+      for (const name of names) {
+        const abs = path.join(root, date, name);
+        try {
+          const st = fs.statSync(abs);
+          if (!st.isFile()) continue;
+          files.push({ date, name, abs, bytes: st.size, mtimeMs: st.mtimeMs });
+        } catch {
+          /* 读不到就不算 */
+        }
+      }
+    }
+
+    // 每个源文件的最新一份：按 mtime 取最大
+    const newestBySource = new Map();
+    for (const f of files) {
+      const source = path.basename(f.name).replace(/\.bak$/, '').replace(/-\d+$/, '');
+      const prev = newestBySource.get(source);
+      if (!prev || f.mtimeMs > prev.mtimeMs) newestBySource.set(source, f);
+    }
+    const protectedAbs = new Set([...newestBySource.values()].map((f) => f.abs));
+
+    const totalBefore = files.reduce((sum, f) => sum + f.bytes, 0);
+    const remove = [];
+    let total = totalBefore;
+
+    if (cutoff) {
+      for (const f of files) {
+        if (f.date >= cutoff) continue;
+        if (protectedAbs.has(f.abs)) continue;
+        remove.push(f);
+        total -= f.bytes;
+      }
+    }
+    if (maxTotalBytes > 0 && total > maxTotalBytes) {
+      const removable = files
+        .filter((f) => !protectedAbs.has(f.abs) && !remove.includes(f))
+        .sort((a, b) => (a.date === b.date ? a.mtimeMs - b.mtimeMs : a.date < b.date ? -1 : 1));
+      for (const f of removable) {
+        if (total <= maxTotalBytes) break;
+        remove.push(f);
+        total -= f.bytes;
+      }
+    }
+
+    const removed = [];
+    if (!dryRun) {
+      for (const f of remove) {
+        try {
+          fs.unlinkSync(f.abs);
+          removed.push({ date: f.date, name: f.name, bytes: f.bytes });
+        } catch (error) {
+          errors.push(`${f.date}/${f.name}: ${String(error?.message ?? error)}`);
+        }
+      }
+      for (const date of dirs) {
+        try {
+          const left = fs.readdirSync(path.join(root, date));
+          if (left.length === 0) fs.rmdirSync(path.join(root, date));
+        } catch {
+          /* 目录被别人占用就留着 */
+        }
+      }
+      if (removed.length > 0) {
+        try {
+          this.appendJsonl(this.pruneLogFile, {
+            t: this.nowIso(),
+            removed: removed.length,
+            freedBytes: removed.reduce((sum, r) => sum + r.bytes, 0),
+            keepDays,
+            maxTotalBytes,
+            today,
+          }, { recordCorruption: false });
+        } catch {
+          /* 记不上不影响清理本身 */
+        }
+      }
+    }
+    return {
+      dryRun,
+      removed: dryRun ? remove.map((f) => ({ date: f.date, name: f.name, bytes: f.bytes })) : removed,
+      kept: files.length - remove.length,
+      freedBytes: remove.reduce((sum, f) => sum + f.bytes, 0),
+      totalBefore,
+      totalAfter: total,
+      errors,
+    };
   }
 
   /* --------------------------------- 原子写 --------------------------------- */

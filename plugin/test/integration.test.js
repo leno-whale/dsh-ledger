@@ -39,12 +39,12 @@ function snapshotRealDsh() {
   return bag;
 }
 
-test('S5/S21: apply() 注册 7 工具、1 个 guard、收工/后置监听、尾部注入段', () => {
+test('S5/S21: apply() 注册 8 工具、1 个 guard、收工/后置监听、尾部注入段', () => {
   const env = makeEnv();
   const mock = mockCtx();
   try {
     plugin.apply(mock.ctx, env.config);
-    assert.equal(mock.tools.size, 7);
+    assert.equal(mock.tools.size, 8);
     assert.equal(mock.guards.length, 1);
     assert.equal((mock.listeners.get('agent/turn-stopping') ?? []).length, 1);
     assert.equal((mock.listeners.get('tools/post-execute') ?? []).length, 1);
@@ -156,7 +156,7 @@ test('S25: dispose 后工具/guard/监听/注入段全部撤销', async () => {
   const mock = mockCtx();
   try {
     plugin.apply(mock.ctx, env.config);
-    assert.equal(mock.tools.size, 7);
+    assert.equal(mock.tools.size, 8);
     mock.dispose();
     assert.equal(mock.tools.size, 0);
     assert.equal(mock.guards.length, 0);

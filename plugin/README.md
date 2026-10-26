@@ -63,6 +63,8 @@ npm i -D dsh-ledger          # 或从本地路径 link
 | `rulesDir` | `''`（关） | 规矩清单目录 |
 | `workspaceRoot` | `''`（关） | 老式布局：给了就按 `<root>/接口/说`、`<root>/接口/规矩` 推 |
 | `watchRepos` | `[]` | 从这里列的 git 仓库独立核对改动（见下节）。空＝不核对 |
+| `backupKeepDays` | `30` | 备份保留天数，`0`＝不按时间清理 |
+| `backupMaxTotalMb` | `500` | 备份总量上限（MB），`0`＝不按容量清理 |
 
 > **迁移**：如果你 `~/.dsh` 根上已经有 `whale-*.jsonl` 这类老账，插件会**继续用根目录**，不会把账搬走；新装的人才会用到 `~/.dsh/ledger/`。
 
@@ -73,17 +75,20 @@ npm i -D dsh-ledger          # 或从本地路径 link
 ```
 ~/.dsh/
 ├── ledger/
-│   ├── whale-backup-manifest.jsonl   每行一次改动/备份（追加写）
-│   ├── whale-error-ledger.jsonl      错误账
-│   ├── whale-criteria/               判据（一条一个 md）
-│   ├── whale-undone.jsonl            未做账
-│   └── whale-conflicts.jsonl         分歧账
+│   ├── ledger-manifest.jsonl    每行一次改动/备份（追加写）
+│   ├── ledger-errors.jsonl      错误账
+│   ├── ledger-criteria/         判据（一条一个 md）
+│   ├── whale-undone.jsonl       未做账（你自己的本子，保持原名）
+│   ├── ledger-conflicts.jsonl   分歧账
+│   └── ledger-prune-log.jsonl   备份清理记录（只记数，不记路径）
 └── backup/
     └── 2026-01-02/
         └── 文件名.bak
 ```
 
-**7 个工具**：`ledger_today`（一行汇总）、`ledger_undone`、`ledger_conflict`、`ledger_judge`、`ledger_belief`、`ledger_backup`、`ledger_error`。
+> **v0.3 的老文件名**（`whale-backup-manifest.jsonl`、`whale-error-ledger.jsonl`、`whale-criteria/`、`whale-rule-usage.json`、`whale-criteria-log.jsonl`、`whale-conflicts.jsonl`、`whale-inject-state.json`）在启动时**自动搬到新名字**。两边同名文件都在时不合并、不删除，只在错误账里记一条 `migration`，等人来看。`whale-beliefs.md`、`whale-beliefs-log.jsonl`、`whale-undone.jsonl` 是你自己的本子，**不改名**。
+
+**8 个工具**：`ledger_today`（一行汇总）、`ledger_undone`、`ledger_conflict`、`ledger_judge`、`ledger_belief`、`ledger_backup`、`ledger_error`、`ledger_prune`（看/清备份，默认只算不删）。
 
 **手动看**：
 
@@ -120,20 +125,37 @@ ledger_today
 
 ---
 
-## 五、已知问题（先说，省得你踩）
+## 五、备份清理
 
-1. **闸看不见 shell**（最重要，见第一节）。这一点 v0.4 也没解决，只能靠下面的 `watchRepos` 事后对账。
-2. **`watchRepos` 是事后核对，不是拦**：它每 60 秒最多查一次，且只对「git 仓库里的文件」有效。
-3. **备份目录会变大**。目前没有自动清理，需要你自己定期删 `backup/<旧日期>/`。
-4. **多进程同时写**同一个 JSONL 没做文件锁（DSH 一般单会话，但同一台机器开两个 profile 就会撞）。
-5. 数据文件名暂时还带 `whale-` 前缀（v0.5 改名并做一次迁移）。
+备份会一直长，所以有 `ledger_prune`（默认**只算不删**）：
+
+```
+ledger_prune                     # 看：多少文件、多少 MB、能删几个
+ledger_prune {"dryRun": false}   # 真删
+ledger_prune {"keep_days": 7}    # 7 天前的可以删
+ledger_prune {"max_total_mb": 200}  # 总量超 200MB 就从最老的删
+```
+
+两条政策（`backupKeepDays` 默认 30 天、`backupMaxTotalMb` 默认 500MB）之外，有一条硬规则：**每个源文件的最新一份永远保留**——旧版本可以清，最后那份副本不清。所以清理跑多久，都不会出现「改之前无原件可查」。
+
+清完会往 `ledger-prune-log.jsonl` 记一行（删了几个、释放多少字节、用的什么政策），不记路径。
 
 ---
 
-## 六、开发
+## 六、已知问题（先说，省得你踩）
+
+1. **闸看不见 shell**（最重要，见第一节）。这一点 v0.4 也没解决，只能靠下面的 `watchRepos` 事后对账。
+2. **`watchRepos` 是事后核对，不是拦**：它每 60 秒最多查一次，且只对「git 仓库里的文件」有效。
+3. **备份不会无限长**：`ledger_prune` 可以按天数/容量清（默认只算不删，要显式 `dryRun:false`）。目前**不会自动跑**，需要你（或模型）想起来调一次。
+4. **多进程**：v0.4 起写 JSONL 走 `<dataDir>/.lock` 独占锁；进程崩了留下的锁超过 30 秒会被抢过来，不会卡死。
+5. **数据文件名**：v0.4 起插件自己的账改叫 `ledger-*`，启动时自动从 `whale-*` 搬过来；你自己的本子（`whale-beliefs.md` / `whale-beliefs-log.jsonl` / `whale-undone.jsonl`）保持原名。
+
+---
+
+## 七、开发
 
 ```bash
-npm test          # 69 项，node --test，无需网络
+npm test          # 82 项，node --test，无需网络
 ```
 
 CI 在 Windows 与 Ubuntu、Node 22/24 上各跑一遍（见 `.github/workflows/ci.yml`）。

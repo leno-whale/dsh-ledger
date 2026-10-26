@@ -2,18 +2,24 @@
 
 ## 0.4.0 — 未发布
 
-让「改N」有第二个证人。
+三刀：让「改N」有第二个证人、让并发写不互相盖、让备份可清、让文件名不再叫 `whale-`。
 
 **新增**
 
 - `lib/git.js`：`collectGitChanges(config, today)` 去 `watchRepos` 列的 git 仓库里查 `git status --porcelain -z` 与当天的提交，返回 `{all, modified, repos, skipped, errors}`；零依赖，只调系统 git，单仓库 8 秒超时，结果缓存 60 秒（`clearGitCache()` 可清）。
 - `store.counts(today, git)`：`改N` 变成「账本记到的 ∪ git 看见的」；新增 `byGit`（账本没记到的改动数）与 `unbacked`（今天改过已有文件、但没有备份行）。
 - `ledger_today` 新增两行告警：`⚠有改没备份：<前三个文件名> 等N个`、`⚠git 账读不到：<第一个错误>`。
-- `test/git.test.js`：6 项（无配置 / 已跟踪文件改动 / 新建未跟踪 / 非仓库 / 缓存与 force / counts 与 unbacked）。
+- `store.withLock(fn)`：跨进程互斥，`<dataDir>/.lock` 独占创建；持有超过 30 秒视为崩溃残留并抢过来，等锁 3 秒超时；同类重入按深度放行（`appendJsonl` 里还会调 `noteCorruption`）。`appendJsonl` 与 `appendLine` 都走它。
+- `store.pruneBackups({dryRun, keepDays, maxTotalBytes})` + `store.backupStats()`；新工具 `ledger_prune`（默认 dryRun）。政策：`backupKeepDays` 默认 30 天、`backupMaxTotalMb` 默认 500MB、**每个源文件最新一份永远保留**；清完往 `ledger-prune-log.jsonl` 记一行（只记数不记路径）。
+- `store.migrateLegacyNames()`：启动时把 `whale-backup-manifest.jsonl` / `whale-error-ledger.jsonl` / `whale-criteria/` / `whale-rule-usage.json` / `whale-criteria-log.jsonl` / `whale-conflicts.jsonl` / `whale-inject-state.json` 搬到 `ledger-*`；新旧都在时**不合并、不删除**，只记一条 `migration` 错误账。
+- `test/lock.test.js`（3 项：两进程各追加 25 行一行不丢、锁不残留、旧锁被抢）、`test/prune.test.js`（9 项）。
+- `.github/workflows/ci.yml`：Windows + Ubuntu × Node 22/24、语法自检、临时 `DSH_HOME` 冒烟。**本地默认不跟踪**——推它需要 PAT 带 `workflow` 权限。
 
 **行为**
 
 - `??`（新建未跟踪）只算「改」，不算「有改没备份」——没有原件可备。`D`（已删除）两边都不算。
+- 备份清理**不会自动跑**，要显式调 `ledger_prune` 并传 `{"dryRun": false}`。
+- `hasLegacyData()` 两种老都认（`whale-*` 旧名 + 已经在新名散落的老账），所以升级用户的账仍留在 `~/.dsh` 根上，不搬。`
 
 **修**
 
