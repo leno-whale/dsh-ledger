@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createBackupGuard, createPostExecute, createTurnStopper } from '../lib/gates.js';
-import { makeEnv, writeEventFile } from './helpers.js';
+import { makeEnv } from './helpers.js';
 
 function execFor(name, args) {
   return { name, arguments: args };
@@ -23,6 +23,10 @@ test('S11/S21: autoBackup=true 时先备份再放行，并通过 post-execute �
     assert.equal(env.store.manifestRows().filter((r) => r.kind === 'backup').length, 1);
     const backup = env.store.manifestRows().find((r) => r.kind === 'backup');
     assert.equal(fs.readFileSync(backup.backup, 'utf8'), '旧内容');
+    const change = env.store.manifestRows().find((r) => r.kind === 'change');
+    assert.equal(change.path, file);
+    assert.equal(change.source, 'gate');
+    assert.equal(change.backup, backup.backup);
 
     const post = createPostExecute(notes);
     const decision = await post(exec, { content: [{ type: 'text', text: 'written' }] }, async () => ({ kind: 'accept' }));
@@ -130,8 +134,8 @@ test('S15: 闸门内部异常一律放行并写错误账', () => {
   }
 });
 
-test('S14/S21: 无当日事件文件时 steer 取消收工，同一 turn 只 steer 一次', () => {
-  const env = makeEnv();
+test('v0.3/S10: 今天账空时 steer 取消收工，同一 turn 只敲一次', () => {
+  const env = makeEnv({ config: { minIntervalMs: 0 } });
   try {
     const stopper = createTurnStopper({ store: env.store, config: env.config });
     const agent = { steers: [], steer(message) { this.steers.push(message); } };
@@ -153,14 +157,45 @@ test('S14/S21: 无当日事件文件时 steer 取消收工，同一 turn 只 ste
   }
 });
 
-test('S14: 当日有事件文件时放行收工', () => {
-  const env = makeEnv();
+test('v0.3/S10: 今天有 change/backup/判断/错误/冲突 任一，都不再 steer', () => {
+  const cases = [
+    (store) => store.appendManifest({ path: 'C:\\x.md', kind: 'change', sha256: 'a', size: 1, mtime: '' }),
+    (store) => store.appendManifest({ path: 'C:\\x.md', kind: 'backup', sha256: 'a', size: 1, mtime: '', backup: 'C:\\x.bak' }),
+    (store) => store.appendJsonl(store.criteriaLogFile, { t: store.nowIso(), id: 'B1', why: '判断' }),
+    (store) => store.recordError({ text: '错', source: 'test', level: 'P1' }),
+    (store) => store.appendJsonl(store.conflictsFile, { t: store.nowIso(), topic: '分歧' }),
+  ];
+  for (const makeEntry of cases) {
+    const env = makeEnv({ config: { minIntervalMs: 0 } });
+    try {
+      makeEntry(env.store);
+      const stopper = createTurnStopper({ store: env.store, config: env.config });
+      const agent = { steers: [], steer(message) { this.steers.push(message); } };
+      stopper({ agent, turn: 1 });
+      assert.equal(agent.steers.length, 0, '今天已有账，不应该再敲');
+    } finally {
+      env.cleanup();
+    }
+  }
+});
+
+test('v0.3/S10: minIntervalMs 内不重复敲，超过间隔才再敲', () => {
+  const env = makeEnv({ config: { minIntervalMs: 60 * 60 * 1000 } });
   try {
-    writeEventFile(env, '2026-10-26');
-    const stopper = createTurnStopper({ store: env.store, config: env.config });
+    let clock = 1_000_000;
+    const stopper = createTurnStopper({ store: env.store, config: env.config, now: () => clock });
     const agent = { steers: [], steer(message) { this.steers.push(message); } };
+
     stopper({ agent, turn: 1 });
-    assert.equal(agent.steers.length, 0);
+    assert.equal(agent.steers.length, 1);
+
+    clock += 10 * 60 * 1000;
+    stopper({ agent, turn: 2 });
+    assert.equal(agent.steers.length, 1, '10 分钟后不该再敲');
+
+    clock += 50 * 60 * 1000;
+    stopper({ agent, turn: 3 });
+    assert.equal(agent.steers.length, 2, '满 1 小时后可以再敲');
   } finally {
     env.cleanup();
   }

@@ -4,6 +4,12 @@
 > **改文件前先备份、发帖前先给依据、收工对账**，把「改了什么 / 没做什么」变成可查的纯文本账。
 > 零依赖、零网络、不碰你的 Git 仓库。
 
+> **v0.3 必读：升级后请重启一次 DSH。** 工具/备份闸/收工闸是在 DSH 加载插件时注册的，
+> 已经开着的会话不会热挂。装完先跑 `node plugin/tools/status.mjs`：
+> `segments: tools=ok guard=ok injection=ok turnStopping=ok postExecute=ok` 且退出码 0，才算真的生效；
+> 否则看 `~/.dsh/ledger-state.json` 与 `~/.dsh/ledger-errors.jsonl`（`type:"load"`）。
+> 完整的安装/升级/CLI/数据格式/限制见仓库根 `README.md`。
+
 ---
 
 ## 一、它做什么，不做什么（先看这一屏）
@@ -12,7 +18,7 @@
 
 1. **备份闸**：模型调 `write` / `edit` 改一个**已存在**的文件之前，先把原件抄一份到 `backup/<日期>/`，并记一行指纹（sha256）。
 2. **记账**：`change`（新建）、`edit`（改动）、`backup`（备份）三类记录，追加写，永不改写。
-3. **收工对账**（可关）：回合结束时如果今天还没有「说」的记录，用 `steer` 把一句话塞回来提醒你——**只在你自己配置了事件目录时才启用**。
+3. **收工对账**（可关）：回合结束时如果**今天账上一笔都没有**（改/备/判断/错误/冲突任一即算有），用 `steer` 把一句话塞回来提醒你；同一轮最多一次，两次之间默认隔 1 小时（`minIntervalMs`）。不再以「发没发帖」为准。
 4. **判断依据**（可选）：`ledger_judge` 要求先点名一条判据（`A1`/`B3`…）或写「猜」，再下结论。
 5. **错误账 / 未做账 / 分歧账**：三本小账，配 `ledger_today` 一行汇总。
 6. **每轮注入**（可关）：把一行「改N 备M | 今日事件：有/无」放进系统提示**尾部**，不污染稳定前缀。
@@ -59,7 +65,7 @@ npm i -D dsh-ledger          # 或从本地路径 link
 | `maxSkipsPerDay` | `3` | 「今天确实不记账」每天可跳几次 |
 | `timeZone` | 跟随系统 | 可用 `TZ` 环境变量覆盖 |
 | `inject` | `true` | 关掉后只能用 `ledger_today` 手动查 |
-| `sayDir` | `''`（关） | 收工闸看的事件目录 |
+| `sayDir` | `''`（关） | 发帖记录目录；只用于「今日事件」提示，不再决定收工闸 |
 | `rulesDir` | `''`（关） | 规矩清单目录 |
 | `workspaceRoot` | `''`（关） | 老式布局：给了就按 `<root>/接口/说`、`<root>/接口/规矩` 推 |
 | `watchRepos` | `[]` | 从这里列的 git 仓库独立核对改动（见下节）。空＝不核对 |
@@ -149,13 +155,29 @@ ledger_prune {"max_total_mb": 200}  # 总量超 200MB 就从最老的删
 3. **备份不会无限长**：`ledger_prune` 可以按天数/容量清（默认只算不删，要显式 `dryRun:false`）。目前**不会自动跑**，需要你（或模型）想起来调一次。
 4. **多进程**：v0.4 起写 JSONL 走 `<dataDir>/.lock` 独占锁；进程崩了留下的锁超过 30 秒会被抢过来，不会卡死。
 5. **数据文件名**：v0.4 起插件自己的账改叫 `ledger-*`，启动时自动从 `whale-*` 搬过来；你自己的本子（`whale-beliefs.md` / `whale-beliefs-log.jsonl` / `whale-undone.jsonl`）保持原名。
+6. **旧会话不热挂**：升级后必须重启 DSH；插件无法给已经存在的会话补注册工具/闸。用 `status.mjs` 确认，不要靠猜。
+
+---
+
+## 六点五、离线 CLI（工具没生效时也能对账）
+
+```bash
+node tools/status.mjs                 # 自检：模块/state/最近一条账/备份数/今日行；全 ok 退出 0
+node tools/status.mjs --json
+node tools/today.mjs                  # 纯文件复算 ledger_today 首行
+node tools/backfill.mjs --repo F:\work\proj            # dry-run：列出今天改了但没备份的文件
+node tools/backfill.mjs --repo F:\work\proj --apply    # 补 backup + change(source:"backfill")
+```
+
+公共参数：`--home <DSH_HOME>`（测试隔离/多账本）、`--workspace`、`--repo`（可重复）、
+`--now <ISO>`（按指定时刻复算）、`--json`。全部零依赖，不需要模型上下文。
 
 ---
 
 ## 七、开发
 
 ```bash
-npm test          # 82 项，node --test，无需网络
+npm test          # 91 项，node --test，无需网络
 ```
 
 CI 在 Windows 与 Ubuntu、Node 22/24 上各跑一遍（见 `.github/workflows/ci.yml`）。

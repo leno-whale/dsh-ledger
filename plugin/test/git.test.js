@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,11 +16,20 @@ function git(cwd, args) {
     GIT_AUTHOR_DATE: '2026-10-25T12:00:00+08:00',
     GIT_COMMITTER_DATE: '2026-10-25T12:00:00+08:00',
   };
-  return execFileSync(
-    'git',
-    ['-c', 'core.quotepath=false', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args],
-    { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env },
-  );
+  // stdout 重定向到临时文件而不是管道：DSH 沙箱禁止子进程管道（会 EPERM）。
+  const outFile = path.join(os.tmpdir(), `leno-git-test-${process.pid}-${crypto.randomBytes(4).toString('hex')}.out`);
+  const fd = fs.openSync(outFile, 'w+');
+  try {
+    execFileSync(
+      'git',
+      ['-c', 'core.quotepath=false', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args],
+      { cwd, stdio: ['ignore', fd, 'ignore'], env, windowsHide: true },
+    );
+    return fs.readFileSync(outFile, 'utf8');
+  } finally {
+    try { fs.closeSync(fd); } catch { /* ignore */ }
+    try { fs.unlinkSync(outFile); } catch { /* ignore */ }
+  }
 }
 
 function makeRepo(root) {

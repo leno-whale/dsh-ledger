@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { truncate } from './store.js';
 import { collectGitChanges } from './git.js';
+import { todayFirstLine } from './today.js';
 
 const LEVELS = ['P0', 'P1', 'P2'];
 const ID_RE = /^[ABC]\d+$/;
@@ -91,10 +92,7 @@ export function createTools(store, config) {
       const git = collectGitChanges(config, today);
       const counts = store.counts(today, git);
       const totalErrors = store.unresolvedErrors().length;
-      const hasEvent = store.hasEventFile(today);
-      const importedNote = counts.imported > 0 ? `（含${counts.imported}导入）` : '';
-      const first = `改${counts.edits} 备${counts.backups}${importedNote} | 判断${counts.judged} 记${counts.errors} | 冲突${counts.conflicts} | 今日事件：${hasEvent ? '有' : '无'}`
-        + (totalErrors >= 3 ? ` ⚠错误${totalErrors}` : '');
+      const first = todayFirstLine(store, config, { today, git });
       const undone = store.undoneRows();
       const zero = store.zeroRefRules(7).length;
       const orphan = store.orphanRetired();

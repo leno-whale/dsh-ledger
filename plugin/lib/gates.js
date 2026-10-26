@@ -45,13 +45,18 @@ export function createBackupGuard({ store, config, notes }) {
       const backed = store.findTodayBackup(abs, sha256, today);
 
       if (backed) {
-        store.appendManifest({ path: abs, kind: 'edit', sha256, size: stat.size, mtime });
+        store.appendManifest({
+          path: abs, kind: 'change', sha256, size: stat.size, mtime,
+          source: 'gate', backup: backed.backup,
+        });
         return undefined;
       }
 
       if (config.autoBackup) {
+        let backupPath = '';
         try {
           const result = store.backupFile(abs);
+          backupPath = result.backupPath;
           notes.set(
             exec,
             `leno-ledger: 已自动备份 ${abs} -> ${result.backupPath}（sha256 ${result.sha256.slice(0, 12)}）`,
@@ -64,7 +69,10 @@ export function createBackupGuard({ store, config, notes }) {
             ref: abs,
           });
         }
-        store.appendManifest({ path: abs, kind: 'edit', sha256, size: stat.size, mtime });
+        store.appendManifest({
+          path: abs, kind: 'change', sha256, size: stat.size, mtime,
+          source: 'gate', backup: backupPath,
+        });
         return undefined;
       }
 
@@ -91,24 +99,29 @@ export function createBackupGuard({ store, config, notes }) {
 }
 
 /**
- * 收工闸（S14）。
- * turn-stopping 阶段用 agent.steer 把“下一步”塞回 inbox，回合会再走一步；
- * 不用 abort/抛错（那会把回合标成 error）。同一 turn 最多 steer 一次，防死循环（S15）。
+ * 收工闸（v0.3 S10）。
+ * 触发条件：今天账上一笔都没有（change/backup/判断/错误/冲突任一即算有），
+ * 不再以「事件文件」为准——发不发帖和有没有干活是两回事。
+ * 仍用 agent.steer 把“下一步”塞回 inbox（不是 abort/抛错），
+ * 同一 turn 只敲一次，两次 steer 之间至少间隔 minIntervalMs（默认 1 小时）。
  */
-export function createTurnStopper({ store, config }) {
+export function createTurnStopper({ store, config, now = () => Date.now() }) {
   const steeredTurns = new Set();
+  let lastSteerAt = 0;
   return function lenoLedgerTurnStopping(payload) {
     try {
       const agent = payload?.agent;
       const turn = payload?.turn;
       const today = store.today();
 
-      if (!store.sayDir) return; // 没配置事件目录＝收工闸关着（默认）
-      if (store.hasEventFile(today)) return;
+      if (store.todayHasEntries(today)) return;
       if (store.todaySkips(today) > 0) return;
 
       const key = String(turn ?? `day:${today}`);
       if (steeredTurns.has(key)) return;
+      const interval = Number.isFinite(config.minIntervalMs) ? config.minIntervalMs : 0;
+      if (lastSteerAt > 0 && now() - lastSteerAt < interval) return;
+
       steeredTurns.add(key);
 
       if (!agent || typeof agent.steer !== 'function') {
@@ -121,10 +134,10 @@ export function createTurnStopper({ store, config }) {
       }
 
       const remaining = Math.max(0, config.maxSkipsPerDay - store.todaySkips(today));
-      const eventExample = path.join(store.sayDir, `${today}-NN.md`);
+      const sayHint = store.sayDir ? `，或写 ${path.join(store.sayDir, `${today}-NN.md`)}` : '';
       const action = remaining > 0
-        ? `下一步（二选一）：A) 写 ${eventExample}（五栏：场/谁在收/几个人在看/接法/判读）；B) 确实不记，调用 ledger_error {"text":"原因","skip_check":true} 跳过今日检查（今日还剩 ${remaining} 次）。`
-        : `下一步：写 ${eventExample}。今日跳过次数已用完（maxSkipsPerDay=${config.maxSkipsPerDay}），不能再跳过。`;
+        ? `下一步（三选一）：A) 改一个文件（自动记 change+backup）；B) 记一条判断/错误/分歧${sayHint}；C) 确实今天没干活，调用 ledger_error {"text":"原因","skip_check":true} 跳过今日检查（今日还剩 ${remaining} 次）。`
+        : `下一步：改一个文件、记一条判断/错误/分歧${sayHint}。今日跳过次数已用完（maxSkipsPerDay=${config.maxSkipsPerDay}），不能再跳过。`;
 
       agent.steer({
         id: store.randomId(),
@@ -132,6 +145,7 @@ export function createTurnStopper({ store, config }) {
         content: [{ type: 'text', text: `leno-ledger: 收工未记账。${action}` }],
         source: { kind: 'leno-ledger' },
       });
+      lastSteerAt = now();
     } catch (error) {
       try {
         store.recordError({

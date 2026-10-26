@@ -36,7 +36,7 @@ export function createInjection(store) {
       ];
       for (const item of fresh) lines.push(`· 未做：${item.text}`);
       if (store.sayDir && !hasEvent && lines.length < 5) {
-        lines.push(`· 今日还没有 ${store.sayDir}/${today}-*.md，收工会被拦`);
+        lines.push(`· 今日还没有 ${store.sayDir}/${today}-*.md（发帖记录）`);
       }
       const zero = store.zeroRefRules(7).length;
       if (zero > 0 && lines.length < 5) lines.push(`· 近7天0引用的规矩：${zero} 条`);

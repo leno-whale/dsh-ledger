@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## 0.3.0 — 2026-10-26（本分支交付版本）
+
+修「插件加载了但六条功能全灭」：默认导出补 `inject: ['tools']`，`apply()` 五段各自
+try/catch，写完写 `ledger-state.json` 与 `ledger-errors.jsonl`（`type:"load"`）。
+新增三个离线 CLI（`tools/status.mjs`、`tools/today.mjs`、`tools/backfill.mjs`）。
+收工闸触发条件从「今天没有事件文件」改成「今天账上一笔都没有」，并加 `minIntervalMs`（默认 1h）。
+manifest 新增 `kind:"change"`（`source: gate|backfill`），与 `kind:"backup"` 分开计。
+注：本版功能范围包含 0.4.x 已落地的 git 证人、跨进程锁、备份清理；版本号按 v0.3 验收表回退为 0.3.0。
+
 ## 0.4.1 — 2026-10-26
 
 CI 抓到的 Windows 坑：`withLock()` 抢锁时 `openSync(path,'wx')` 在 Windows 上可能抛

@@ -45,7 +45,9 @@ export function writeEventFile(env, date, index = '01') {
   return writeWorkspaceFile(env, path.join('接口', '说', `${date}-${index}.md`), '# 场\n');
 }
 
-export function mockCtx() {
+export function mockCtx(options = {}) {
+  const withTools = options.withTools !== false;
+  const withSystemPrompt = options.withSystemPrompt !== false;
   const tools = new Map();
   const guards = [];
   const listeners = new Map();
@@ -53,27 +55,10 @@ export function mockCtx() {
   const effects = [];
 
   const ctx = {
-    tools: {
-      register(definition) {
-        tools.set(definition.name, definition);
-        return () => tools.delete(definition.name);
-      },
-      guard(fn) {
-        guards.push(fn);
-        return () => {
-          const index = guards.indexOf(fn);
-          if (index >= 0) guards.splice(index, 1);
-        };
-      },
-    },
-    systemPrompt: {
-      section(section) {
-        sections.push(section);
-        return () => {
-          const index = sections.indexOf(section);
-          if (index >= 0) sections.splice(index, 1);
-        };
-      },
+    get(name) {
+      if (name === 'systemPrompt') return ctx.systemPrompt;
+      if (name === 'tools') return ctx.tools;
+      return undefined;
     },
     on(event, fn) {
       const list = listeners.get(event) ?? [];
@@ -90,6 +75,34 @@ export function mockCtx() {
       return () => {};
     },
   };
+
+  if (withTools) {
+    ctx.tools = {
+      register(definition) {
+        tools.set(definition.name, definition);
+        return () => tools.delete(definition.name);
+      },
+      guard(fn) {
+        guards.push(fn);
+        return () => {
+          const index = guards.indexOf(fn);
+          if (index >= 0) guards.splice(index, 1);
+        };
+      },
+    };
+  }
+
+  if (withSystemPrompt) {
+    ctx.systemPrompt = {
+      section(section) {
+        sections.push(section);
+        return () => {
+          const index = sections.indexOf(section);
+          if (index >= 0) sections.splice(index, 1);
+        };
+      },
+    };
+  }
 
   return {
     ctx,

@@ -1,6 +1,6 @@
 {
   "name": "dsh-ledger",
-  "version": "0.4.1",
+  "version": "0.3.0",
   "description": "账房：改文件前先备份、发帖前先给依据、收工对账，把「改了什么、没做什么」变成可查的本地账。",
   "keywords": [
     "dsh",
@@ -19,6 +19,7 @@
   },
   "files": [
     "lib",
+    "tools",
     "cordis.patch.yml",
     "README.md",
     "README.zh-CN.md",
@@ -26,7 +27,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test --test-isolation=none \"test/*.test.js\""
   },
   "engines": {
     "node": ">=22"

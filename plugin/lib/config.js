@@ -79,7 +79,9 @@ export const DEFAULTS = Object.freeze({
   /** 备份时跳过的路径（子串或 `*` 通配） */
   ignore: DEFAULT_IGNORE,
   /** v0.4 用：要从 git 独立取「改了没备份」的仓库根 */
-  watchRepos: []
+  watchRepos: [],
+  /** 收工闸两次 steer 的最小间隔（毫秒），默认 1 小时 */
+  minIntervalMs: 60 * 60 * 1000
 });
 
 const BOOL_TRUE = new Set(['1', 'true', 'yes', 'on']);
@@ -190,7 +192,8 @@ export function resolveConfig(raw = {}) {
     backupKeepDays: asPositiveInt(input.backupKeepDays, DEFAULTS.backupKeepDays),
     backupMaxTotalMb: asPositiveInt(input.backupMaxTotalMb, DEFAULTS.backupMaxTotalMb),
     ignore: asStringArray(input.ignore, DEFAULTS.ignore),
-    watchRepos: asStringArray(input.watchRepos, DEFAULTS.watchRepos)
+    watchRepos: asStringArray(input.watchRepos, DEFAULTS.watchRepos),
+    minIntervalMs: asPositiveInt(input.minIntervalMs, DEFAULTS.minIntervalMs)
   };
 }
 

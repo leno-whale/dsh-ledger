@@ -44,6 +44,7 @@ test('S5/S21: apply() 注册 8 工具、1 个 guard、收工/后置监听、尾�
   const mock = mockCtx();
   try {
     plugin.apply(mock.ctx, env.config);
+    assert.deepEqual(plugin.inject, ['tools']);
     assert.equal(mock.tools.size, 8);
     assert.equal(mock.guards.length, 1);
     assert.equal((mock.listeners.get('agent/turn-stopping') ?? []).length, 1);
@@ -53,6 +54,14 @@ test('S5/S21: apply() 注册 8 工具、1 个 guard、收工/后置监听、尾�
     assert.ok(mock.sections[0].order >= 9000);
     assert.equal(typeof mock.sections[0].text, 'function');
     assert.equal(mock.effects.length, 1);
+
+    const state = JSON.parse(fs.readFileSync(path.join(env.dshHome, 'ledger-state.json'), 'utf8'));
+    assert.equal(state.version, '0.3.0');
+    assert.equal(typeof state.pid, 'number');
+    assert.match(state.loadedAt, /^\d{4}-\d{2}-\d{2}T/);
+    for (const name of ['tools', 'guard', 'injection', 'turnStopping', 'postExecute']) {
+      assert.equal(state.segments[name]?.ok, true, `${name} 应该是 ok`);
+    }
   } finally {
     env.cleanup();
   }
@@ -89,12 +98,58 @@ test('S21: 对已存在文件调用 write，先产生备份再放行，结果里
   }
 });
 
-test('S14/S21: 无事件文件时 turn-stopping 触发 steer；补事件文件后放行', () => {
+test('v0.3/S1–S3: 缺 ctx.tools 时其余段仍注册，state 与 load 错误落盘', () => {
   const env = makeEnv();
+  const mock = mockCtx({ withTools: false });
+  try {
+    plugin.apply(mock.ctx, env.config);
+    assert.equal(mock.tools.size, 0);
+    assert.equal(mock.guards.length, 0);
+    assert.equal(mock.sections.length, 1, '注入段不应被 tools 失败带倒');
+    assert.equal((mock.listeners.get('agent/turn-stopping') ?? []).length, 1);
+    assert.equal((mock.listeners.get('tools/post-execute') ?? []).length, 1);
+
+    const state = JSON.parse(fs.readFileSync(path.join(env.dshHome, 'ledger-state.json'), 'utf8'));
+    assert.equal(state.segments.tools.ok, false);
+    assert.match(state.segments.tools.error, /ctx\.tools/);
+    assert.equal(state.segments.guard.ok, false);
+    assert.equal(state.segments.injection.ok, true);
+    assert.equal(state.segments.turnStopping.ok, true);
+    assert.equal(state.segments.postExecute.ok, true);
+
+    const errors = fs.readFileSync(path.join(env.dshHome, 'ledger-errors.jsonl'), 'utf8')
+      .split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+    assert.ok(errors.some((row) => row.type === 'load' && row.segment === 'tools'));
+    assert.ok(errors.some((row) => row.type === 'load' && row.segment === 'guard'));
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('v0.3/S1: systemPrompt 不可用时只有 injection 段失败，其余照常', () => {
+  const env = makeEnv();
+  const mock = mockCtx({ withSystemPrompt: false });
+  try {
+    plugin.apply(mock.ctx, env.config);
+    assert.equal(mock.tools.size, 8);
+    assert.equal(mock.guards.length, 1);
+    assert.equal(mock.sections.length, 0);
+    assert.equal((mock.listeners.get('agent/turn-stopping') ?? []).length, 1);
+    const state = JSON.parse(fs.readFileSync(path.join(env.dshHome, 'ledger-state.json'), 'utf8'));
+    assert.equal(state.segments.injection.ok, false);
+    assert.match(state.segments.injection.error, /systemPrompt/);
+    assert.equal(state.segments.tools.ok, true);
+    assert.equal(state.segments.turnStopping.ok, true);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('v0.3/S10: 无账时 turn-stopping 触发 steer；记一笔 change 后放行', () => {
+  const env = makeEnv({ config: { minIntervalMs: 0 } });
   const mock = mockCtx();
   try {
     plugin.apply(mock.ctx, env.config);
-    const today = realToday();
     const listener = (mock.listeners.get('agent/turn-stopping') ?? [])[0];
 
     const agent = { steers: [], steer(message) { this.steers.push(message); } };
@@ -102,9 +157,13 @@ test('S14/S21: 无事件文件时 turn-stopping 触发 steer；补事件文件�
     assert.equal(agent.steers.length, 1);
     assert.match(agent.steers[0].content[0].text, /leno-ledger: 收工未记账/);
 
-    writeEventFile(env, today);
+    env.store.appendManifest({
+      // 插件内部用真实时钟，这里必须写“真实的今天”，不能写固定时钟的 10-26。
+      t: new Date().toISOString(),
+      path: path.join(env.root, 'worked.md'), kind: 'change', sha256: 'x', size: 1, mtime: '',
+    });
     listener({ agent, turn: 2 });
-    assert.equal(agent.steers.length, 1);
+    assert.equal(agent.steers.length, 1, '今天有账后不再敲');
   } finally {
     env.cleanup();
   }

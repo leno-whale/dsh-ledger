@@ -9,20 +9,34 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const CACHE_MS = 60 * 1000;
 const cache = new Map();
 
+/**
+ * 跑 git 并把 stdout 重定向到临时文件，而不是用管道。
+ * 原因：部分受限环境（含 DSH 文件沙箱）禁止子进程管道，`stdio: 'pipe'` 会 EPERM；
+ * 用文件描述符既不改语义，也避免把 git 输出读成半截。
+ */
 function runGit(cwd, args, timeout = 8000) {
-  return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
-    cwd,
-    encoding: 'utf8',
-    timeout,
-    stdio: ['ignore', 'pipe', 'ignore'],
-    windowsHide: true,
-  });
+  const outFile = path.join(os.tmpdir(), `leno-git-${process.pid}-${crypto.randomBytes(4).toString('hex')}.out`);
+  const fd = fs.openSync(outFile, 'w+');
+  try {
+    execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
+      cwd,
+      timeout,
+      stdio: ['ignore', fd, 'ignore'],
+      windowsHide: true,
+    });
+    return fs.readFileSync(outFile, 'utf8');
+  } finally {
+    try { fs.closeSync(fd); } catch { /* ignore */ }
+    try { fs.unlinkSync(outFile); } catch { /* ignore */ }
+  }
 }
 
 function isRepo(dir) {

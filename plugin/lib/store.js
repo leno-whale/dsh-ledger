@@ -599,6 +599,20 @@ export class Store {
     ).length;
   }
 
+  /**
+   * 今天账上有没有一笔（v0.3 S10）。
+   * change / backup / 判断 / 错误 / 冲突，任一即算有；这是收工闸的触发条件。
+   */
+  todayHasEntries(today = this.today()) {
+    const onDay = (row) => this.dateOf(row.t) === today;
+    if (this.manifestRows().some((r) => onDay(r)
+      && ['change', 'edit', 'create', 'backup', 'retired'].includes(r.kind))) return true;
+    if (this.errorRows().some((r) => onDay(r) && r.type !== 'corrupt')) return true;
+    if (this.readJsonl(this.criteriaLogFile, { recordCorruption: false }).rows.some(onDay)) return true;
+    if (this.readJsonl(this.conflictsFile, { recordCorruption: false }).rows.some(onDay)) return true;
+    return false;
+  }
+
   /* --------------------------------- manifest -------------------------------- */
 
   manifestRows() {
@@ -750,13 +764,16 @@ export class Store {
    */
   counts(today = this.today(), git = {}) {
     const manifest = this.manifestRows().filter((r) => this.dateOf(r.t) === today);
-    const editRows = manifest.filter((r) => r.kind === 'edit').map((r) => r.path);
+    const editRows = manifest
+      .filter((r) => r.kind === 'change' || r.kind === 'edit')
+      .map((r) => r.path);
     // 改 = 当日动过的去重路径数；导入的备份行也贡献一个路径，
     // 否则历史导入会显示成“改0 备9”这种更假的账。
     const edited = new Set(
       manifest
         .filter(
-          (r) => r.kind === 'create' || r.kind === 'edit' || (r.kind === 'backup' && r.imported),
+          (r) => ['change', 'edit', 'create'].includes(r.kind)
+            || (r.kind === 'backup' && r.imported),
         )
         .map((r) => r.path),
     );

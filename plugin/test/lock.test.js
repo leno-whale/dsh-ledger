@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -10,15 +12,27 @@ import { makeEnv } from './helpers.js';
 const LIB = pathToFileURL(path.join(import.meta.dirname, '..', 'lib')).href;
 
 function runWorker(script, args) {
+  // 不用 pipe：受限环境禁止子进程管道；stdout/stderr 直接落临时文件。
+  const tag = `${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  const outFile = path.join(os.tmpdir(), `leno-lock-${tag}.out`);
+  const errFile = path.join(os.tmpdir(), `leno-lock-${tag}.err`);
+  const outFd = fs.openSync(outFile, 'w');
+  const errFd = fs.openSync(errFile, 'w');
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--input-type=module', '-e', script, ...args], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', outFd, errFd],
     });
-    let out = '';
-    let err = '';
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { err += d; });
-    child.on('close', (code) => resolve({ code, out, err }));
+    child.on('close', (code) => {
+      try { fs.closeSync(outFd); } catch { /* ignore */ }
+      try { fs.closeSync(errFd); } catch { /* ignore */ }
+      let out = '';
+      let err = '';
+      try { out = fs.readFileSync(outFile, 'utf8'); } catch { /* ignore */ }
+      try { err = fs.readFileSync(errFile, 'utf8'); } catch { /* ignore */ }
+      try { fs.unlinkSync(outFile); } catch { /* ignore */ }
+      try { fs.unlinkSync(errFile); } catch { /* ignore */ }
+      resolve({ code, out, err });
+    });
   });
 }
 

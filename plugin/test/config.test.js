@@ -122,7 +122,7 @@ test('v0.3/闸：超过 maxBackupBytes 的文件不备份也不拦', () => {
   }
 });
 
-test('v0.3/收工闸：没配 sayDir 时永远不 steer', async () => {
+test('v0.3/S10: 没配 sayDir 也按「今天账空」判断，不再看事件目录', async () => {
   const t = tmpHome();
   try {
     const cfg = resolveConfig({ dshHome: t.home, timeZone: 'Asia/Shanghai' });
@@ -134,7 +134,8 @@ test('v0.3/收工闸：没配 sayDir 时永远不 steer', async () => {
     let steered = 0;
     const agent = { steer() { steered += 1; } };
     stop({ agent, turn: 't1' });
-    assert.equal(steered, 0, '默认配置下不该 steer');
+    assert.equal(steered, 1, '默认配置、今天账空，应该提醒一次');
+    assert.equal(cfg.sayDir, '');
   } finally {
     t.cleanup();
   }
