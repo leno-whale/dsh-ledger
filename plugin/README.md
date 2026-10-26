@@ -1,4 +1,4 @@
-# dsh-ledger · 账房
+# dsh-leno-ledger · 账房
 
 > 一个给 [DeepSeek Harness](https://github.com/deepseek-ai) 用的本地账本插件：
 > **改文件前先备份、发帖前先给依据、收工对账**，把「改了什么 / 没做什么」变成可查的纯文本账。
@@ -36,15 +36,15 @@
 ## 二、装
 
 ```bash
-npm i -D dsh-ledger          # 或从本地路径 link
+npm i -D dsh-leno-ledger          # 或从本地路径 link
 ```
 
 在你的 profile（`<DSH_HOME>/profiles/<名字>/package.json`）里加两处：
 
 ```jsonc
 {
-  "dependencies": { "dsh-ledger": "link:F:/path/to/dsh-ledger/plugin" },
-  "dsh": { "profile": { "bundles": ["dsh-ledger"] } }
+  "dependencies": { "dsh-leno-ledger": "link:F:/path/to/dsh-ledger/plugin" },
+  "dsh": { "profile": { "bundles": ["dsh-leno-ledger"] } }
 }
 ```
 
@@ -186,7 +186,7 @@ CI 在 Windows 与 Ubuntu、Node 22/24 上各跑一遍（见 `.github/workflows/
 
 ## English
 
-`dsh-ledger` is a local-only ledger plugin for the DeepSeek Harness: it snapshots a file before the model edits it, records every change in append-only JSONL, and can nudge the agent at turn end if today has no "spoken" record. **It only guards the `write`/`edit` tools — shell writes bypass it.** No deps, no network, no telemetry. MIT.
+`dsh-leno-ledger` is a local-only ledger plugin for the DeepSeek Harness: it snapshots a file before the model edits it, records every change in append-only JSONL, and can nudge the agent at turn end if today has no "spoken" record. **It only guards the `write`/`edit` tools — shell writes bypass it.** No deps, no network, no telemetry. MIT.
 
 ## License
 

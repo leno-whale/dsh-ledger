@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.5.0 · 发布名（2026-10-27）
+
+npm 上的 `dsh-ledger` 已被他人占用（2026-08 占名，做纯文本记账，GitHub 仓库不存在）。
+本包发布名改为 **`dsh-leno-ledger`**：`package.json` 的 `name`、`cordis.patch.yml` 的 `id`/`name`、
+README 的安装命令同步改；**数据文件、配置项、工具名一律不变**，已经装过的人不用改任何配置。
+
 ## 0.5.0 — 2026-10-27（合入 main）
 
 修「插件加载了但六条功能全灭」：默认导出补 `inject: ['tools']`，`apply()` 五段各自

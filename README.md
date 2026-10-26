@@ -1,7 +1,10 @@
-# dsh-ledger（账房）v0.3
+# dsh-leno-ledger（账房）v0.5
 
 给 DeepSeek Harness 用的本地账本插件：**改文件前先备份、下判断前先给依据、收工对账**。
 零依赖、零网络、只写本地文件。
+
+> **名字说明**：npm 上的 `dsh-ledger` 是另一个人的包（纯文本记账，2026-08 占的名），跟这个不是一回事。
+> 本包发布名是 **`dsh-leno-ledger`**；仓库仍叫 `dsh-ledger`。
 
 > ## ⚠️ 升级后请先重启一次 DSH
 >
@@ -37,8 +40,8 @@
 # 从本地目录安装（开发/自用）
 dsh plugin --profile desktop add "link:F:\path\to\dsh-ledger\plugin"
 
-# 或从 npm（发布后）
-dsh plugin --profile desktop add dsh-ledger
+# 或从 npm
+dsh plugin --profile desktop add dsh-leno-ledger
 ```
 
 装完 **重启 DSH**，再跑 `node plugin/tools/status.mjs` 自检。
@@ -144,7 +147,7 @@ node plugin/tools/backfill.mjs --repo F:\work\proj --apply    # 真写
 ## 卸载
 
 ```powershell
-dsh plugin --profile desktop remove dsh-ledger
+dsh plugin --profile desktop remove dsh-leno-ledger
 ```
 
 卸载只移除插件注册，**不删数据**；要清账自己删 `~/.dsh/ledger/`（或根上的 `ledger-*`）与 `~/.dsh/backup/`。
