@@ -13,9 +13,10 @@ const ACTIONS = ['list', 'search', 'add', 'top', 'retire'];
 const OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
+  required: ['ok', 'text'],
   properties: {
-    ok: { type: 'boolean', required: true },
-    text: { type: 'string', required: true },
+    ok: { type: 'boolean' },
+    text: { type: 'string' },
     dedup: { type: 'boolean' },
     backupPath: { type: 'string' },
     count: { type: 'number' },
@@ -26,11 +27,30 @@ function render(_args, value) {
   return [{ type: 'text', text: String(value?.text ?? '') }];
 }
 
+/**
+ * 把 `required: true`（写在各属性里的那种）收成 JSON Schema 标准的顶层
+ * `required: [...]` 数组。宿主的 schema 校验器不认属性级 required，会直接
+ * 拒绝注册（错误：`schema.properties.ok.required is not supported on type "boolean"`）。
+ */
+function normalizeProperties(properties) {
+  const clean = {};
+  const required = [];
+  for (const [key, spec] of Object.entries(properties ?? {})) {
+    const { required: isRequired, ...rest } = spec;
+    clean[key] = rest;
+    if (isRequired) required.push(key);
+  }
+  return { properties: clean, required };
+}
+
 function def(name, description, properties, execute) {
+  const { properties: clean, required } = normalizeProperties(properties);
+  const parameters = { type: 'object', additionalProperties: false, properties: clean };
+  if (required.length) parameters.required = required;
   return {
     name,
     description,
-    parameters: { type: 'object', additionalProperties: false, properties },
+    parameters,
     output: { schema: OUTPUT_SCHEMA, render },
     execute,
   };
