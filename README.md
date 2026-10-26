@@ -4,13 +4,14 @@
 
 - 插件本体与使用说明：**[`plugin/README.md`](plugin/README.md)**
 - 变更记录：[`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)
+- 它是怎么长出来的（设计报告、验收标准、两次审核意见）：**[`docs/`](docs/README.md)**
 - 许可：[MIT](plugin/LICENSE)
 
 ```
 plugin/         发布物（npm 包 dsh-ledger，Node >= 22，零依赖零网络）
+docs/           过程文档（技术报告、验收标准/结论、审核与复核意见）
 _probe/         开发期用的一次性探针（从宿主 asar 抽的接口样本、核对脚本）
 .github/        CI（Windows + Ubuntu，Node 22/24）
-*.md            设计与验收文档（技术报告、验收标准/结论、审核与复核意见）
 ```
 
 ## 一句话
