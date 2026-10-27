@@ -7,3 +7,7 @@ plugin/.npmrc
 _probe/asar-out/
 # 开发期探针里有从宿主安装包抽出的源码片段，不进公开仓库
 _probe/
+# 文献原文（PDF 与全文 txt）有版权，不进公开仓库；引用位置见 docs/essays/附录-文献对照.md
+docs/essays/refs/
+docs/essays/读书笔记-信念修订-2026-10-27.md
+_scratch/
