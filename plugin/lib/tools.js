@@ -130,6 +130,11 @@ export function createTools(store, config) {
         lines.push(`⚠有改没备份：${names.join(' ')}${more}`);
       }
       if (git.errors.length > 0) lines.push(`⚠git 账读不到：${truncate(git.errors[0], 40)}`);
+      // b）改了 N 个文件却一条判断都没记：这类漏不在「未做」里，只能在账面上看。
+      if (counts.edits > 0 && counts.judged === 0) {
+        lines.push(`⚠改了${counts.edits}个文件，没记过一条判断（判断只写进脑子＝没写）`);
+      }
+
       const usage = store.ruleUsage();
       const top = Object.entries(usage)
         .sort((a, b) => (b[1]?.n ?? 0) - (a[1]?.n ?? 0))

@@ -8,7 +8,7 @@ import { createInjection } from './inject.js';
 import { createTools } from './tools.js';
 
 /** v0.3：与 package.json 同步；状态文件里也写这一份，便于离线核对。 */
-export const VERSION = '0.5.0';
+export const VERSION = '0.5.1';
 
 /**
  * 必须先声明 tools 依赖，cordis 才会在 apply 前注入 ctx.tools。
@@ -40,6 +40,11 @@ function appendLoadError(file, row) {
 // 自动备份后的可见提示，按 exec 对象暂存（guard 与 post-execute 共享）。
 const notes = new WeakMap();
 
+/** 本回合的计数（a 项）：改了 N 个文件、记了 M 笔账。回合结束时由收工闸落盘。 */
+function createTurnStats() {
+  return { edits: 0, ledger: 0 };
+}
+
 export default {
   name: 'dsh-ledger',
   inject,
@@ -63,6 +68,7 @@ export default {
 
     const stateFile = path.join(resolved.dshHome, STATE_FILE);
     const loadErrorFile = path.join(resolved.dshHome, LOAD_ERROR_FILE);
+    const turnStats = createTurnStats();
     const segments = {};
     const disposers = [];
     const keep = (disposer) => {
@@ -132,12 +138,12 @@ export default {
 
     run('turnStopping', () => {
       if (typeof ctx?.on !== 'function') throw new Error('ctx.on 不可用');
-      keep(ctx.on('agent/turn-stopping', createTurnStopper({ store, config: resolved })));
+      keep(ctx.on('agent/turn-stopping', createTurnStopper({ store, config: resolved, stats: turnStats })));
     });
 
     run('postExecute', () => {
       if (typeof ctx?.on !== 'function') throw new Error('ctx.on 不可用');
-      keep(ctx.on('tools/post-execute', createPostExecute(notes)));
+      keep(ctx.on('tools/post-execute', createPostExecute(notes, turnStats)));
     });
 
     // S3：五段都走完（无论成败）写一次状态，离线 status.mjs 只看这个文件。

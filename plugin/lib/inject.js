@@ -17,7 +17,13 @@ export function createInjection(store) {
       );
       const errors = store.unresolvedErrors().length;
 
-      if (undone.length === 0 && (hasEvent || !store.sayDir) && errors < 3) return '';
+      // a）上一回合改了文件却一笔账没记：这一轮才说（在回合内说已经晚了）。
+      const turn = store.turnState() || {};
+      const turnEdits = Number(turn.edits) | 0;
+      const turnLedger = Number(turn.ledger) | 0;
+      const turnHot = turnEdits > 0 && turnLedger === 0 && store.withinDays(turn.t, 1);
+
+      if (undone.length === 0 && (hasEvent || !store.sayDir) && errors < 3 && !turnHot) return '';
 
       const state = store.injectState();
       const nowMs = store.now().getTime();
@@ -34,6 +40,7 @@ export function createInjection(store) {
       const lines = [
         `【账房】改${counts.edits} 备${counts.backups} | 今日事件：${store.sayDir ? (hasEvent ? '有' : '无') : '（未启用）'}${flag}`,
       ];
+      if (turnHot) lines.push(`· 上回合：改了${turnEdits}个文件，一笔账没记`);
       for (const item of fresh) lines.push(`· 未做：${item.text}`);
       if (store.sayDir && !hasEvent && lines.length < 5) {
         lines.push(`· 今日还没有 ${store.sayDir}/${today}-*.md（发帖记录）`);

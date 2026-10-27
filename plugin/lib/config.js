@@ -14,6 +14,7 @@ export const FILES = Object.freeze({
   undone: 'whale-undone.jsonl',
   conflicts: 'ledger-conflicts.jsonl',
   injectState: 'ledger-inject-state.json',
+  turnState: 'ledger-turn.json',
   pruneLog: 'ledger-prune-log.jsonl'
 });
 

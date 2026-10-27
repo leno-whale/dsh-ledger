@@ -86,6 +86,7 @@ export class Store {
     this.undoneFile = path.join(data, FILES.undone);
     this.backupRoot = config.backupRoot || path.join(home, 'backup');
     this.injectStateFile = path.join(data, FILES.injectState);
+    this.turnStateFile = path.join(data, FILES.turnState);
     this.pruneLogFile = path.join(data, FILES.pruneLog);
     // 跨进程锁：放在 dataDir 下，同一本账只有一个锁
     this.lockPath = path.join(data, '.lock');
@@ -914,6 +915,18 @@ export class Store {
 
   saveInjectState(state) {
     this.writeJson(this.injectStateFile, state);
+  }
+
+  /**
+   * 上一回合的「有改无账」状态（a 项）。
+   * 只存一件事：这一回合改了 N 个文件、记了 M 笔账。注入段读它，决定要不要提醒。
+   */
+  turnState() {
+    return this.readJson(this.turnStateFile, {});
+  }
+
+  saveTurnState(state) {
+    this.writeJson(this.turnStateFile, state);
   }
 }
 

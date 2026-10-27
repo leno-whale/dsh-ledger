@@ -105,7 +105,7 @@ export function createBackupGuard({ store, config, notes }) {
  * 仍用 agent.steer 把“下一步”塞回 inbox（不是 abort/抛错），
  * 同一 turn 只敲一次，两次 steer 之间至少间隔 minIntervalMs（默认 1 小时）。
  */
-export function createTurnStopper({ store, config, now = () => Date.now() }) {
+export function createTurnStopper({ store, config, now = () => Date.now(), stats = null }) {
   const steeredTurns = new Set();
   let lastSteerAt = 0;
   return function lenoLedgerTurnStopping(payload) {
@@ -113,6 +113,17 @@ export function createTurnStopper({ store, config, now = () => Date.now() }) {
       const agent = payload?.agent;
       const turn = payload?.turn;
       const today = store.today();
+
+      // a）先记账再判要不要 steer：本回合改了文件却一笔账没记，留给下一轮注入去说。
+      if (stats) {
+        const edits = Number(stats.edits) | 0;
+        const ledger = Number(stats.ledger) | 0;
+        if (edits > 0 || ledger > 0) {
+          store.saveTurnState({ t: store.nowIso(), edits, ledger });
+        }
+        stats.edits = 0;
+        stats.ledger = 0;
+      }
 
       if (store.todayHasEntries(today)) return;
       if (store.todaySkips(today) > 0) return;
@@ -164,11 +175,21 @@ export function createTurnStopper({ store, config, now = () => Date.now() }) {
  * 自动备份后的可见提示（S11）：把一行说明追加到该次 write/edit 的结果内容里。
  * 结构依据 _probe/tools-types.js:1152-1189 的 tools/post-execute waterfall。
  */
-export function createPostExecute(notes) {
+export function createPostExecute(notes, stats = null) {
   return async function lenoLedgerPostExecute(exec, result, next) {
     const note = notes.get(exec);
     if (note) notes.delete(exec);
     const decision = typeof next === 'function' ? await next() : { kind: 'accept' };
+    if (stats) {
+      try {
+        const name = String(exec?.name ?? '');
+        const ok = !(result && result.isError);
+        if (ok && (name === 'write' || name === 'edit' || name.endsWith('_edit'))) stats.edits += 1;
+        else if (ok && name.startsWith('ledger_')) stats.ledger += 1;
+      } catch {
+        /* 计数失败不影响执行 */
+      }
+    }
     if (!note || !result || result.isError) return decision;
     if (!decision || decision.kind !== 'accept') return decision;
     if (Object.hasOwn(decision, 'value')) return decision;

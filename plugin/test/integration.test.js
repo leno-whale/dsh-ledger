@@ -56,7 +56,7 @@ test('S5/S21: apply() 注册 8 工具、1 个 guard、收工/后置监听、尾�
     assert.equal(mock.effects.length, 1);
 
     const state = JSON.parse(fs.readFileSync(path.join(env.dshHome, 'ledger-state.json'), 'utf8'));
-    assert.equal(state.version, '0.5.0');
+    assert.equal(state.version, '0.5.1');
     assert.equal(typeof state.pid, 'number');
     assert.match(state.loadedAt, /^\d{4}-\d{2}-\d{2}T/);
     for (const name of ['tools', 'guard', 'injection', 'turnStopping', 'postExecute']) {
