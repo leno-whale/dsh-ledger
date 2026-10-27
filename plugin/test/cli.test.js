@@ -114,7 +114,7 @@ test('S7: status.mjs 的 --json 输出可解析，且包含备份数与今日行
     const parsed = JSON.parse(result.out);
     assert.equal(parsed.module.ok, true);
     assert.equal(parsed.state.exists, true);
-    assert.equal(parsed.state.content.version, '0.5.1');
+    assert.equal(parsed.state.content.version, '0.5.2');
     assert.equal(parsed.backups.files, 0);
     assert.match(parsed.today.line, /^改0 备0/);
   } finally {

@@ -106,6 +106,13 @@ export function createBackupGuard({ store, config, notes }) {
  * 同一 turn 只敲一次，两次 steer 之间至少间隔 minIntervalMs（默认 1 小时）。
  */
 export function createTurnStopper({ store, config, now = () => Date.now(), stats = null }) {
+  // 2026-10-27：顺手写一行心跳，给别的插件（bili-whale 的「N 天没表态」）用。
+  //   只写时间戳，不参与账目；写失败不算错，也不影响下面任何判断。
+  try {
+    const hb = path.join(config.dshHome, "ledger-heartbeat.json");
+    fs.mkdirSync(path.dirname(hb), { recursive: true });
+    fs.writeFileSync(hb, `${JSON.stringify({ at: new Date().toISOString(), pid: process.pid })}\n`, "utf8");
+  } catch { /* 心跳写不了不算错 */ }
   const steeredTurns = new Set();
   let lastSteerAt = 0;
   return function lenoLedgerTurnStopping(payload) {
