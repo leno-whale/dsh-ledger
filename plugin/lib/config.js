@@ -216,6 +216,11 @@ export function resolveConfig(raw = {}) {
     skillsUsageFile: input.skillsUsageFile
       ? path.resolve(String(input.skillsUsageFile))
       : path.join(dshHome, 'whale-skill-usage.json'),
+    // 2026-10-29（插件化第 2 步）：I₁（人格 + 判据索引 + 触发器）的注入源。
+    // 有 workspaceRoot 就落 `<ws>\自我\I1.md`；显式给了 i1File 就听它的。
+    i1File: input.i1File
+      ? path.resolve(String(input.i1File))
+      : (workspaceRoot ? path.join(workspaceRoot, '自我', 'I1.md') : path.join(dshHome, 'I1.md')),
     autoBackup: asBool(
       input.autoBackup,
       asBool(env.LENO_LEDGER_AUTO_BACKUP, asBool(env.LEDGER_AUTO_BACKUP, DEFAULTS.autoBackup))

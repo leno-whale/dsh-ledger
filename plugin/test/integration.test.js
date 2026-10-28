@@ -54,10 +54,15 @@ test('S5/S21: apply() 注册 8 工具、1 个 guard、收工/后置监听、尾�
     assert.equal(mock.guards.length, 1);
     assert.equal((mock.listeners.get('agent/turn-stopping') ?? []).length, 1);
     assert.equal((mock.listeners.get('tools/post-execute') ?? []).length, 1);
-    assert.equal(mock.sections.length, 1);
-    assert.equal(mock.sections[0].name, 'leno-ledger');
-    assert.ok(mock.sections[0].order >= 9000);
-    assert.equal(typeof mock.sections[0].text, 'function');
+    // 2026-10-29（插件化第 2 步）：注入段从 1 个变 2 个（leno-i1 10250 + leno-ledger 10300）。
+    assert.equal(mock.sections.length, 2);
+    const ledgerSection = mock.sections.find((s) => s.name === 'leno-ledger');
+    const i1Section = mock.sections.find((s) => s.name === 'leno-i1');
+    assert.ok(ledgerSection && i1Section, '两个注入段都要在');
+    assert.equal(i1Section.order, 10250);
+    assert.ok(ledgerSection.order >= 9000);
+    assert.equal(typeof ledgerSection.text, 'function');
+    assert.equal(typeof i1Section.text, 'function');
     assert.equal(mock.effects.length, 1);
 
     const state = JSON.parse(fs.readFileSync(path.join(env.dshHome, 'ledger-state.json'), 'utf8'));
@@ -110,7 +115,7 @@ test('v0.3/S1–S3: 缺 ctx.tools 时其余段仍注册，state 与 load 错误�
     plugin.apply(mock.ctx, env.config);
     assert.equal(mock.tools.size, 0);
     assert.equal(mock.guards.length, 0);
-    assert.equal(mock.sections.length, 1, '注入段不应被 tools 失败带倒');
+    assert.equal(mock.sections.length, 2, '两个注入段都不应被 tools 失败带倒');
     assert.equal((mock.listeners.get('agent/turn-stopping') ?? []).length, 1);
     assert.equal((mock.listeners.get('tools/post-execute') ?? []).length, 1);
 

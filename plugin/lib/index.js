@@ -5,10 +5,11 @@ import { resolveConfig } from './config.js';
 import { Store } from './store.js';
 import { createBackupGuard, createPostExecute, createTurnStopper } from './gates.js';
 import { createInjection } from './inject.js';
+import { loadI1 } from './i1.js';
 import { createTools } from './tools.js';
 
 /** v0.3：与 package.json 同步；状态文件里也写这一份，便于离线核对。 */
-export const VERSION = '0.6.1';
+export const VERSION = '0.6.2';
 
 /**
  * 必须先声明 tools 依赖，cordis 才会在 apply 前注入 ctx.tools。
@@ -133,6 +134,13 @@ export default {
         // 10300：排在内置后缀（harness 10000 / web 10100 / persona 10200）之后。
         order: 10300,
         text: createInjection(store),
+      }));
+      // 2026-10-29（插件化第 2 步）：I₁ 只在这里注入。
+      // 10250 排在账房段之前（注入顺序稳定），读文件失败就整段消失——不注入半截。
+      keep(systemPrompt.section({
+        name: 'leno-i1',
+        order: 10250,
+        text: () => loadI1(resolved),
       }));
     });
 
