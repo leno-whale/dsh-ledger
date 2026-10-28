@@ -272,6 +272,12 @@ test('S2: 启用后六类数据文件可发现，且不截断已有内容', asyn
     assert.equal(fs.readFileSync(env.store.conflictsFile, 'utf8'), existing);
     assert.deepEqual(JSON.parse(fs.readFileSync(env.store.ruleUsageFile, 'utf8')), {});
 
+    // P5：先排队两次（候选 seen=2），再升格
+    for (let i = 0; i < 2; i += 1) {
+      await mock.tools.get('ledger_belief').execute({
+        action: 'add', id: 'A9', title: '新规矩', body: '正文', cand: true,
+      });
+    }
     await mock.tools.get('ledger_belief').execute({
       action: 'add', id: 'A9', title: '新规矩', body: '正文',
     });

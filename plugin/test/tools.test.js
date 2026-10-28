@@ -165,6 +165,13 @@ test('六问3: ledger_belief add/retire，退休必须带 successor 或 mergeInt
   try {
     const tool = toolByName(build(env), 'ledger_belief');
 
+    // P5：新判据先排队两次（候选 seen=2）才允许升格
+    for (let i = 0; i < 2; i += 1) {
+      const queued = await tool.execute({
+        action: 'add', id: 'B7', title: '问用途，不看句子像不像', body: '判断一桌是不是同类', cand: true,
+      });
+      assert.equal(queued.ok, true, '进候选应成功');
+    }
     const added = await tool.execute({
       action: 'add',
       id: 'B7',
