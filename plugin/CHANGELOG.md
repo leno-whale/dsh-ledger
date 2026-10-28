@@ -1,3 +1,15 @@
+## 0.6.4 — 2026-10-29
+
+架构 P1：**L₂ 锚**。L₁ 记「发生了什么」，L₂ 只收「它改过我的行为」——说不出「改了什么」的一律留在 L₁，不进锚。
+
+- 新增 `lib/anchor.js`（`addAnchor` / `readAnchors` / `recentAnchors` / `anchorLine`；jsonl 只追加，坏行跳过）
+- 新增工具 `ledger_anchor`（add / list；缺 hit 或 changed 直接拒）→ 工具 10 → 11
+- `config.js` 加 `anchorFile`（默认 `<ws>\自我\锚.jsonl`，无 workspaceRoot 落 `<dshHome>\锚.jsonl`）
+- 注入段末尾加一行「【近 7 天锚】N 条，最近：…」，没有锚就不占行
+- 测试 126 → 130
+
+来历：8 天前架构里写了 L₂，但一直只有定义没有实现；这次补的是那个洞。
+
 ## 0.6.3 — 2026-10-29
 
 **插件化第 3 步：数据归一——I₁ 不再读中间文件。**
