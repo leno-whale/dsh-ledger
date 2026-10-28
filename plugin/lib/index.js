@@ -9,7 +9,7 @@ import { loadI1 } from './i1.js';
 import { createTools } from './tools.js';
 
 /** v0.3：与 package.json 同步；状态文件里也写这一份，便于离线核对。 */
-export const VERSION = '0.6.2';
+export const VERSION = '0.6.3';
 
 /**
  * 必须先声明 tools 依赖，cordis 才会在 apply 前注入 ctx.tools。
