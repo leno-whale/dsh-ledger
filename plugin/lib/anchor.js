@@ -59,11 +59,15 @@ export function addAnchor(file, input = {}) {
 export function recentAnchors(file, { days = 7, now = Date.now() } = {}) {
   const cut = now - Math.max(1, Number(days) || 7) * 86400000;
   return readAnchors(file)
-    .filter((a) => {
+    .map((a, i) => ({ a, i }))
+    .filter(({ a }) => {
       const t = Date.parse(a?.t ?? '');
       return Number.isFinite(t) && t >= cut;
     })
-    .sort((a, b) => Date.parse(b.t) - Date.parse(a.t));
+    // 同一毫秒写入的两条，按「后写的在前」——否则顺序取决于文件里的行序，
+    // 那在 Windows 和 ubuntu 上不一样（2026-10-28 CI 抓到的第一处不稳）。
+    .sort((x, y) => Date.parse(y.a.t) - Date.parse(x.a.t) || y.i - x.i)
+    .map(({ a }) => a);
 }
 
 /** 给注入用的一行：`7 天内 N 条锚，最近：…`；没有就返回空串（不占行） */

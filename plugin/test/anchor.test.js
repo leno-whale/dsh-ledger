@@ -52,10 +52,18 @@ test('P1: 近 7 天过滤 + 新的在前 + 坏行跳过', () => {
 test('P1: 注入那一行——没有锚就返回空串，不占行', () => {
   const file = tmpFile();
   assert.equal(anchorLine(file), '');
-  addAnchor(file, { hit: '主人', changed: '改文件之前先备份' });
+  addAnchor(file, { hit: '主人', changed: '改文件之前先备份', t: '2026-10-29T10:00:00.000Z' });
   const line = anchorLine(file);
   assert.match(line, /^【近 7 天锚】1 条，最近：改文件之前先备份$/);
 
-  addAnchor(file, { hit: '自己', changed: 'x'.repeat(120) });
+  addAnchor(file, { hit: '自己', changed: 'x'.repeat(120), t: '2026-10-29T10:00:01.000Z' });
   assert.match(anchorLine(file), /^【近 7 天锚】2 条，最近：x{60}…$/);
+});
+
+test('P1: 同一毫秒写两条时，后写的算「最近」', () => {
+  const file = tmpFile();
+  const t = '2026-10-29T10:00:00.000Z';
+  addAnchor(file, { hit: '先', changed: '先写的那条', t });
+  addAnchor(file, { hit: '后', changed: '后写的那条', t });
+  assert.match(anchorLine(file), /最近：后写的那条$/);
 });
