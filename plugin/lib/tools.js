@@ -4,6 +4,7 @@ import path from 'node:path';
 import { truncate } from './store.js';
 import { collectGitChanges } from './git.js';
 import { todayFirstLine } from './today.js';
+import { hookSkills } from './skills.js';
 
 const LEVELS = ['P0', 'P1', 'P2'];
 const ID_RE = /^[ABC]\d+$/;
@@ -507,5 +508,31 @@ export function createTools(store, config) {
     },
   );
 
-  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError, toolPrune, toolL1];
+  // 2026-10-29（插件化第 1 步）：技能钩子从裸脚本搬进来。
+  // 它只做三件事：筛（state=alive 且 hook 命中）→ 渲染（最多 3 条）→ 计数（μ 的来源）。
+  const toolSkillsHook = def(
+    'skills_hook',
+    '把某个动作上该想起的技能打出来（最多 3 条），并记一次命中。动作前调用：发帖前 say、下判断前 judge、改文件前 edit、收工 wrapup。',
+    {
+      hook: field('string', '动作钩子：say/check/judge/edit/wrapup/release/media/research', {
+        required: true,
+        enumValues: ['say', 'check', 'judge', 'edit', 'wrapup', 'release', 'media', 'research'],
+      }),
+      scene: field('string', '场（可选）：白饭馆 / B站 / dm / 任意；命中 when 的排前面'),
+    },
+    async (args) => {
+      const hook = String(args?.hook ?? '').trim();
+      const scene = String(args?.scene ?? '').trim();
+      const r = hookSkills({
+        hook,
+        scene,
+        skillsFile: config.skillsFile,
+        usageFile: config.skillsUsageFile,
+      });
+      if (!r.ok) return fail(r.error);
+      return pass(r.text);
+    },
+  );
+
+  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError, toolPrune, toolL1, toolSkillsHook];
 }

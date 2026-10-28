@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## 0.6.1 — 2026-10-29
+
+**技能钩子搬进插件**（插件化第 1 步）。
+
+- 新增 `lib/skills.js`：筛（alive + hook 命中）→ 渲染（最多 3 条）→ 计数（μ 的来源）。
+- 新增工具 `skills_hook`（参数 `hook`，可选 `scene`）。工具总数 9 → 10。
+- `config.js` 新增 `skillsFile` / `skillsUsageFile`，默认仍指向原位置（迁移期不做第二份）。
+- `自我\tools\skills-hook.mjs` 改成薄壳，只调插件实现——避免两份实现两套行为。
+- 测试 106 → 116（新增 `test/skills.test.js` 10 项）。
+
 ## 0.6.0 — 2026-10-28
 
 **器官开始往 L1 流水里写字**——架构落地第一步（P0）。

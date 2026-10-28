@@ -208,6 +208,14 @@ export function resolveConfig(raw = {}) {
     l1Dir: input.l1Dir
       ? path.resolve(String(input.l1Dir))
       : (workspaceRoot ? path.join(workspaceRoot, '自我', 'L1') : path.join(dshHome, 'L1')),
+    // 2026-10-29（插件化第 1 步）：技能池与命中计数搬进插件。
+    // 默认仍读原来的位置，避免迁移期出现第二份 skills.json（一个东西一个载体）。
+    skillsFile: input.skillsFile
+      ? path.resolve(String(input.skillsFile))
+      : path.join(dshHome, 'whale-work', 'skills.json'),
+    skillsUsageFile: input.skillsUsageFile
+      ? path.resolve(String(input.skillsUsageFile))
+      : path.join(dshHome, 'whale-skill-usage.json'),
     autoBackup: asBool(
       input.autoBackup,
       asBool(env.LENO_LEDGER_AUTO_BACKUP, asBool(env.LEDGER_AUTO_BACKUP, DEFAULTS.autoBackup))
