@@ -5,6 +5,7 @@ import { truncate } from './store.js';
 import { collectGitChanges } from './git.js';
 import { todayFirstLine } from './today.js';
 import { hookSkills } from './skills.js';
+import { addAnchor, readAnchors, recentAnchors } from './anchor.js';
 
 const LEVELS = ['P0', 'P1', 'P2'];
 const ID_RE = /^[ABC]\d+$/;
@@ -534,5 +535,46 @@ export function createTools(store, config) {
     },
   );
 
-  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError, toolPrune, toolL1, toolSkillsHook];
+  // 2026-10-29（架构 P1）：L₂ 锚——「它改过我的行为」那一层。
+  // 只收三样：谁顶的、改了什么、可选的 from。没有 changed 的一律不收（那只是事件，留在 L1）。
+  const toolAnchor = def(
+    'ledger_anchor',
+    '记一条锚（L₂）：一次「它改过我的行为」，或列近 7 天的锚。说不出「改了什么」的一律留在 L1。',
+    {
+      action: field('string', 'add（默认）/ list'),
+      hit: field('string', '谁顶的：人 / 事 / 编号'),
+      changed: field('string', '改了什么行为（一句话，要能核）'),
+      from: field('string', '可选：指向 L1 那一行或判据 id（B14 等）'),
+      days: field('number', 'list 时看近几天（默认 7）'),
+    },
+    async (args) => {
+      const action = String(args?.action ?? 'add').trim() || 'add';
+      const file = config.anchorFile;
+      if (!file) return fail('没配 anchorFile，锚关着');
+      if (action === 'list') {
+        const days = Number(args?.days ?? 7) || 7;
+        const list = recentAnchors(file, { days });
+        if (!list.length) return pass(`近 ${days} 天没有锚。`);
+        const lines = list.slice(0, 12).map((a, i) => {
+          const when = String(a.t ?? '').slice(5, 16).replace('T', ' ');
+          const from = a.from ? ` ← ${a.from}` : '';
+          return `${i + 1}. ${when} [${a.hit}] ${truncate(String(a.changed ?? ''), 60)}${from}`;
+        });
+        return pass(`近 ${days} 天锚 ${list.length} 条（共 ${readAnchors(file).length}）：\n${lines.join('\n')}`);
+      }
+      try {
+        const rec = addAnchor(file, {
+          hit: args?.hit,
+          changed: args?.changed,
+          from: args?.from,
+        });
+        const from = rec.from ? `（← ${rec.from}）` : '';
+        return pass(`锚已记：${truncate(rec.changed, 50)}${from}`);
+      } catch (error) {
+        return fail(`记锚失败：${error?.message ?? error}`);
+      }
+    },
+  );
+
+  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError, toolPrune, toolL1, toolSkillsHook, toolAnchor];
 }

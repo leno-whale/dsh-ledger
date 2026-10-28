@@ -221,6 +221,11 @@ export function resolveConfig(raw = {}) {
     i1File: input.i1File
       ? path.resolve(String(input.i1File))
       : (workspaceRoot ? path.join(workspaceRoot, '自我', 'I1.md') : path.join(dshHome, 'I1.md')),
+    // 2026-10-29（P1）：L₂ 锚——「它改过我的行为」那一层。有 workspaceRoot 就落
+    // `<ws>\自我\锚.jsonl`，否则 `<dshHome>\锚.jsonl`；显式给了 anchorFile 就听它的。
+    anchorFile: input.anchorFile
+      ? path.resolve(String(input.anchorFile))
+      : (workspaceRoot ? path.join(workspaceRoot, '自我', '锚.jsonl') : path.join(dshHome, '锚.jsonl')),
     autoBackup: asBool(
       input.autoBackup,
       asBool(env.LENO_LEDGER_AUTO_BACKUP, asBool(env.LEDGER_AUTO_BACKUP, DEFAULTS.autoBackup))

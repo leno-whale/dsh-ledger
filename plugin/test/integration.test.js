@@ -44,13 +44,13 @@ function snapshotRealDsh() {
   return bag;
 }
 
-test('S5/S21: apply() 注册 8 工具、1 个 guard、收工/后置监听、尾部注入段', () => {
+test('S5/S21: apply() 注册 11 工具、1 个 guard、收工/后置监听、尾部注入段', () => {
   const env = makeEnv();
   const mock = mockCtx();
   try {
     plugin.apply(mock.ctx, env.config);
     assert.deepEqual(plugin.inject, ['tools']);
-    assert.equal(mock.tools.size, 10);
+    assert.equal(mock.tools.size, 11);
     assert.equal(mock.guards.length, 1);
     assert.equal((mock.listeners.get('agent/turn-stopping') ?? []).length, 1);
     assert.equal((mock.listeners.get('tools/post-execute') ?? []).length, 1);
@@ -141,7 +141,7 @@ test('v0.3/S1: systemPrompt 不可用时只有 injection 段失败，其余照�
   const mock = mockCtx({ withSystemPrompt: false });
   try {
     plugin.apply(mock.ctx, env.config);
-    assert.equal(mock.tools.size, 10);
+    assert.equal(mock.tools.size, 11);
     assert.equal(mock.guards.length, 1);
     assert.equal(mock.sections.length, 0);
     assert.equal((mock.listeners.get('agent/turn-stopping') ?? []).length, 1);
@@ -225,7 +225,7 @@ test('S25: dispose 后工具/guard/监听/注入段全部撤销', async () => {
   const mock = mockCtx();
   try {
     plugin.apply(mock.ctx, env.config);
-    assert.equal(mock.tools.size, 10);
+    assert.equal(mock.tools.size, 11);
     mock.dispose();
     assert.equal(mock.tools.size, 0);
     assert.equal(mock.guards.length, 0);
