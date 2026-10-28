@@ -6,6 +6,7 @@ import { collectGitChanges } from './git.js';
 import { todayFirstLine } from './today.js';
 import { hookSkills } from './skills.js';
 import { addAnchor, readAnchors, recentAnchors } from './anchor.js';
+import { FILES } from './config.js';
 
 const LEVELS = ['P0', 'P1', 'P2'];
 const ID_RE = /^[ABC]\d+$/;
@@ -143,6 +144,20 @@ export function createTools(store, config) {
         .slice(0, 3)
         .map(([rule, value]) => `${rule}×${value?.n ?? 0}`);
       if (top.length > 0) lines.push(`规矩引用：${top.join(' ')}`);
+      // 2026-10-29（②对账）：被顶了几次，进了几条锚。被顶=错误账条数；锚=L2 的 anchorFile。
+      try {
+        const errPath = path.join(store.dataDir, FILES.errors);
+        const errToday = fs.existsSync(errPath)
+          ? fs.readFileSync(errPath, 'utf8').split('\n').filter(Boolean).filter((l) => {
+              try { return String(JSON.parse(l).t ?? '').startsWith(today); } catch { return false; }
+            }).length
+          : 0;
+        const anchorsToday = readAnchors(config.anchorFile).filter((a) => String(a.t ?? '').startsWith(today)).length;
+        lines.push('对账：今天被顶 ' + errToday + ' 条 / 锚 ' + anchorsToday + ' 条');
+        if (errToday > 0 && anchorsToday === 0) {
+          lines.push('⚠被顶了 ' + errToday + ' 次却一条锚都没有——说不出「改了我哪一次动作」的，留在 L1 行，但那不算学到');
+        }
+      } catch { /* 对账失败不影响账 */ }
       return pass(capLines(lines, 20, 800));
     },
   );

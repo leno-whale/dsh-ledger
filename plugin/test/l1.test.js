@@ -73,3 +73,33 @@ test('L1 写失败不抛（路径被文件占住）', () => {
   plugin.apply(fakeCtx(handlers, []), { l1Dir: blocked });
   assert.doesNotThrow(() => handlers['agent/turn-stopping']({}));
 });
+
+test('数值没变就不写（去噪）', () => {
+  const l1Dir = path.join(HOME, 'L1-d');
+  const handlers = {};
+  plugin.apply(fakeCtx(handlers, []), { l1Dir });
+  handlers['agent/turn-stopping']({});
+  handlers['agent/turn-stopping']({});
+  handlers['agent/turn-stopping']({});
+  const files = fs.readdirSync(l1Dir).filter((f) => f.endsWith('.mdl'));
+  const lines = fs.readFileSync(path.join(l1Dir, files[0]), 'utf8').trim().split('\n')
+    .filter((l) => LINE_RE.test(l));
+  assert.equal(lines.length, 1, '同样的计数连着写三次，计数行应该只剩一行');
+});
+
+test('被顶了却没写锚，L1 里喊一句（对账）', () => {
+  const l1Dir = path.join(HOME, 'L1-e');
+  const data = path.join(HOME, 'ledger-e');
+  fs.mkdirSync(data, { recursive: true });
+  const today = new Date();
+  const p2 = (x) => String(x).padStart(2, '0');
+  const iso = `${today.getFullYear()}-${p2(today.getMonth() + 1)}-${p2(today.getDate())}T${p2(today.getHours())}:${p2(today.getMinutes())}:00.000Z`;
+  fs.writeFileSync(path.join(data, 'ledger-errors.jsonl'),
+    JSON.stringify({ t: iso, text: '被顶了一次', level: 'P1' }) + '\n', 'utf8');
+  const handlers = {};
+  plugin.apply(fakeCtx(handlers, []), { l1Dir, dataDir: data, anchorFile: path.join(HOME, 'anchors-e.jsonl') });
+  handlers['agent/turn-stopping']({});
+  const files = fs.readdirSync(l1Dir).filter((f) => f.endsWith('.mdl'));
+  const body = fs.readFileSync(path.join(l1Dir, files[0]), 'utf8');
+  assert.match(body, /⚠ 对账：今天被顶 1 次，锚 0 条/);
+});

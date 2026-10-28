@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { matchIgnore, stateFileOf } from './config.js';
+import { matchIgnore, stateFileOf, FILES } from './config.js';
+import { readAnchors } from './anchor.js';
 
 function isoOf(stat) {
   return new Date(stat.mtimeMs).toISOString();
@@ -144,8 +145,36 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
           const p2 = (x) => String(x).padStart(2, '0');
           const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
           const line = `${stamp} 改${c.edits}文 / 备${c.backups} / 判断${c.judged} / 事件${hasEvent ? '有' : '无'}`;
+          const file = path.join(config.l1Dir, `${today}.mdl`);
           fs.mkdirSync(config.l1Dir, { recursive: true });
-          fs.appendFileSync(path.join(config.l1Dir, `${today}.mdl`), `${line}\n`, 'utf8');
+          // 2026-10-29（③去噪）：数值没变就不写——同一份计数重复几十行不是流水，是噪音。
+          let sameCounts = false;
+          try {
+            const prev = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trimEnd().split('\n') : [];
+            // 往回找最近一条「计数行」——中间可能夹着 talk / act / 对账 行
+            let last = '';
+            for (let i = prev.length - 1; i >= 0; i -= 1) {
+              if (/改\d+文 \/ 备\d+ \/ 判断\d+ \/ 事件[有无]/.test(prev[i])) { last = prev[i]; break }
+            }
+            const m = last.match(/改(\d+)文 \/ 备(\d+) \/ 判断(\d+) \/ 事件([有无])/);
+            sameCounts = Boolean(m) && Number(m[1]) === c.edits && Number(m[2]) === c.backups
+              && Number(m[3]) === c.judged && m[4] === (hasEvent ? '有' : '无');
+          } catch { /* 读不到就当没有 */ }
+          if (!sameCounts) fs.appendFileSync(file, `${line}\n`, 'utf8');
+          // 2026-10-29（②对账）：今天被顶几次、进了几条锚；被顶了却一条锚都没有，喊一次。
+          try {
+            const errFile = path.join(store.dataDir, FILES.errors);
+            const errToday = fs.existsSync(errFile)
+              ? fs.readFileSync(errFile, 'utf8').split('\n').filter(Boolean).filter((l) => {
+                  try { return String(JSON.parse(l).t ?? '').startsWith(today); } catch { return false; }
+                }).length
+              : 0;
+            const anchorsToday = readAnchors(config.anchorFile).filter((a) => String(a.t ?? '').startsWith(today)).length;
+            const body = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+            if (errToday > 0 && anchorsToday === 0 && !body.includes('⚠ 对账')) {
+              fs.appendFileSync(file, `${stamp} ⚠ 对账：今天被顶 ${errToday} 次，锚 0 条——被顶了没进 L₂\n`, 'utf8');
+            }
+          } catch { /* 对账失败不影响收工 */ }
         }
       } catch { /* L1 写不了不影响收工 */ }
 
