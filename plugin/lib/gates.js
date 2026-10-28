@@ -134,6 +134,21 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
         stats.stateFiles = [];
       }
 
+      // 2026-10-28（架构 P0-a）：往 L1 流水写一行——器官唯一的写入口。
+      //   只记「发生了什么」，不做判断；写失败吞掉，不许把收工闸搞挂。
+      try {
+        if (config.l1Dir) {
+          const c = store.counts(today);
+          const hasEvent = typeof store.hasEventFile === 'function' ? store.hasEventFile(today) : false;
+          const d = new Date(now());
+          const p2 = (x) => String(x).padStart(2, '0');
+          const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+          const line = `${stamp} 改${c.edits}文 / 备${c.backups} / 判断${c.judged} / 事件${hasEvent ? '有' : '无'}`;
+          fs.mkdirSync(config.l1Dir, { recursive: true });
+          fs.appendFileSync(path.join(config.l1Dir, `${today}.mdl`), `${line}\n`, 'utf8');
+        }
+      } catch { /* L1 写不了不影响收工 */ }
+
       if (store.todayHasEntries(today)) return;
       if (store.todaySkips(today) > 0) return;
 

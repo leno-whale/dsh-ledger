@@ -10,13 +10,13 @@ function build(env) {
   return new Map(createTools(env.store, env.config).map((tool) => [tool.name, tool]));
 }
 
-test('S5: 恰好注册 8 个工具，description ≤2 句且 output.render 是函数', () => {
+test('S5: 恰好注册 9 个工具，description ≤2 句且 output.render 是函数', () => {
   const env = makeEnv();
   try {
     const definitions = createTools(env.store, env.config);
     assert.deepEqual(definitions.map((d) => d.name), [
       'ledger_today', 'ledger_undone', 'ledger_conflict', 'ledger_judge',
-      'ledger_belief', 'ledger_backup', 'ledger_error', 'ledger_prune',
+      'ledger_belief', 'ledger_backup', 'ledger_error', 'ledger_prune', 'ledger_l1',
     ]);
     for (const definition of definitions) {
       const sentences = (definition.description.match(/[。！？!?]/g) ?? []).length;

@@ -203,6 +203,11 @@ export function resolveConfig(raw = {}) {
     workspaceRoot,
     sayDir,
     rulesDir,
+    // 2026-10-28（架构 P0-a）：L1 流水目录。有 workspaceRoot 就落在 `<ws>\自我\L1`，
+    // 否则落到 `<dshHome>\L1`；显式给了 l1Dir 就听它的。
+    l1Dir: input.l1Dir
+      ? path.resolve(String(input.l1Dir))
+      : (workspaceRoot ? path.join(workspaceRoot, '自我', 'L1') : path.join(dshHome, 'L1')),
     autoBackup: asBool(
       input.autoBackup,
       asBool(env.LENO_LEDGER_AUTO_BACKUP, asBool(env.LEDGER_AUTO_BACKUP, DEFAULTS.autoBackup))

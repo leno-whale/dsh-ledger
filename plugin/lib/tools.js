@@ -479,5 +479,33 @@ export function createTools(store, config) {
     },
   );
 
-  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError, toolPrune];
+  // 2026-10-28（架构 P0-a）：L1 流水——器官唯一的写入口，只记「发生了什么」。
+  const toolL1 = def(
+    'ledger_l1',
+    '往 L1 流水追加一行：只记发生了什么，不做判断。每次收工或一件具体事做完时调用。',
+    {
+      text: field('string', '发生了什么（一句话）', { required: true }),
+      kind: field('string', '类型：note（默认）/ act / see / talk / other'),
+    },
+    async (args) => {
+      const text = String(args?.text ?? '').trim();
+      if (!text) return fail('text 不能为空');
+      const kind = String(args?.kind ?? 'note').trim() || 'note';
+      const dir = config.l1Dir;
+      if (!dir) return fail('没配 l1Dir，L1 关着');
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        const d = new Date();
+        const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        const day = store.today();
+        const file = path.join(dir, `${day}.mdl`);
+        fs.appendFileSync(file, `${hhmm} ${kind} ${text}\n`, 'utf8');
+        return pass(`L1 已记：${hhmm} ${kind} ${truncate(text, 40)}`);
+      } catch (error) {
+        return fail(`写 L1 失败：${error?.message ?? error}`);
+      }
+    },
+  );
+
+  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError, toolPrune, toolL1];
 }
