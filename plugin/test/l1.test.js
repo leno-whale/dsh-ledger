@@ -22,7 +22,7 @@ function fakeCtx(handlers, tools) {
   };
 }
 
-const LINE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2} 改\d+文 \/ 备\d+ \/ 判断\d+ \/ 事件[有无]$/;
+const LINE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}#\d+ 改\d+文 \/ 备\d+ \/ 判断\d+ \/ 事件[有无]$/;
 
 test('收工闸往 L1 写一行，格式固定', () => {
   const l1Dir = path.join(HOME, 'L1-a');
@@ -52,7 +52,29 @@ test('ledger_l1 追加一行（默认 kind=note）', async () => {
 
   const files = fs.readdirSync(l1Dir).filter((f) => f.endsWith('.mdl'));
   const body = fs.readFileSync(path.join(l1Dir, files[0]), 'utf8');
-  assert.match(body, /^\d{2}:\d{2} note 测试一行$/m);
+  assert.match(body, /^\d{2}:\d{2}#\d+ note 测试一行$/m);
+});
+
+test('同一分钟落两行，序号递增（T2）', async () => {
+  const l1Dir = path.join(HOME, 'L1-seq');
+  const handlers = {};
+  const tools = [];
+  plugin.apply(fakeCtx(handlers, tools), { l1Dir });
+  const tool = tools.find((t) => t.name === 'ledger_l1');
+
+  // 同一分钟内连续写两行：没有序号的话，这两行的先后判不出来。
+  assert.equal((await tool.execute({ text: '第一行' })).ok, true);
+  assert.equal((await tool.execute({ text: '第二行', kind: 'act' })).ok, true);
+
+  const files = fs.readdirSync(l1Dir).filter((f) => f.endsWith('.mdl'));
+  const lines = fs.readFileSync(path.join(l1Dir, files[0]), 'utf8').trim().split('\n');
+  assert.equal(lines.length, 2);
+  const seqOf = (l) => Number(l.match(/#(\d+)/)[1]);
+  assert.equal(seqOf(lines[0]), 1);
+  assert.equal(seqOf(lines[1]), 2);
+  assert.match(lines[1], /^(\d{2}:\d{2})#2 act 第二行$/);
+  // 两行前缀（到分钟）必须相同，才说明测的是「同分钟」这个场景
+  assert.equal(lines[0].slice(0, 5), lines[1].slice(0, 5));
 });
 
 test('目录不存在时自动建', async () => {

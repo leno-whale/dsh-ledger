@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { matchIgnore, stateFileOf, FILES } from './config.js';
 import { readAnchors } from './anchor.js';
+import { stampWithSeq } from './l1stamp.js';
 
 function isoOf(stat) {
   return new Date(stat.mtimeMs).toISOString();
@@ -143,9 +144,11 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
           const hasEvent = typeof store.hasEventFile === 'function' ? store.hasEventFile(today) : false;
           const d = new Date(now());
           const p2 = (x) => String(x).padStart(2, '0');
-          const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
-          const line = `${stamp} 改${c.edits}文 / 备${c.backups} / 判断${c.judged} / 事件${hasEvent ? '有' : '无'}`;
+          const base = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
           const file = path.join(config.l1Dir, `${today}.mdl`);
+          // 2026-10-29（架构 T2）：同分钟落多行必须有序号，否则先后分不出、因果判不了。
+          const stamp = stampWithSeq(file, base);
+          const line = `${stamp} 改${c.edits}文 / 备${c.backups} / 判断${c.judged} / 事件${hasEvent ? '有' : '无'}`;
           fs.mkdirSync(config.l1Dir, { recursive: true });
           // 2026-10-29（③去噪）：数值没变就不写——同一份计数重复几十行不是流水，是噪音。
           let sameCounts = false;
@@ -172,7 +175,8 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
             const anchorsToday = readAnchors(config.anchorFile).filter((a) => String(a.t ?? '').startsWith(today)).length;
             const body = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
             if (errToday > 0 && anchorsToday === 0 && !body.includes('⚠ 对账')) {
-              fs.appendFileSync(file, `${stamp} ⚠ 对账：今天被顶 ${errToday} 次，锚 0 条——被顶了没进 L₂\n`, 'utf8');
+              const s2 = stampWithSeq(file, base);
+              fs.appendFileSync(file, `${s2} ⚠ 对账：今天被顶 ${errToday} 次，锚 0 条——被顶了没进 L₂\n`, 'utf8');
             }
           } catch { /* 对账失败不影响收工 */ }
         }

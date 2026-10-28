@@ -8,6 +8,7 @@ import { hookSkills } from './skills.js';
 import { addAnchor, readAnchors, recentAnchors } from './anchor.js';
 import { FILES } from './config.js';
 import { addCand, readCand, isReady, listCand, markPromoted } from './candidates.js';
+import { stampWithSeq } from './l1stamp.js';
 
 const LEVELS = ['P0', 'P1', 'P2'];
 const ID_RE = /^[ABC]\d+$/;
@@ -557,8 +558,10 @@ export function createTools(store, config) {
         const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         const day = store.today();
         const file = path.join(dir, `${day}.mdl`);
-        fs.appendFileSync(file, `${hhmm} ${kind} ${text}\n`, 'utf8');
-        return pass(`L1 已记：${hhmm} ${kind} ${truncate(text, 40)}`);
+        // 2026-10-29（架构 T2）：同分钟落多行必须有序号。
+        const stamp = stampWithSeq(file, hhmm);
+        fs.appendFileSync(file, `${stamp} ${kind} ${text}\n`, 'utf8');
+        return pass(`L1 已记：${stamp} ${kind} ${truncate(text, 40)}`);
       } catch (error) {
         return fail(`写 L1 失败：${error?.message ?? error}`);
       }
