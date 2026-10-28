@@ -11,6 +11,11 @@ import {
   FIXED_NOW, makeEnv, mockCtx, writeEventFile,
 } from './helpers.js';
 
+/** 版本号只从 package.json 取，升版时不用改测试 */
+const PKG_VERSION = JSON.parse(
+  fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version;
+
 /** 插件内部用真实时钟；集成测试按同一时区算“今天”，不假设某个固定日期。 */
 function realToday() {
   return dateInZone(new Date(), 'Asia/Shanghai');
@@ -56,7 +61,7 @@ test('S5/S21: apply() 注册 8 工具、1 个 guard、收工/后置监听、尾�
     assert.equal(mock.effects.length, 1);
 
     const state = JSON.parse(fs.readFileSync(path.join(env.dshHome, 'ledger-state.json'), 'utf8'));
-    assert.equal(state.version, '0.5.2');
+    assert.equal(state.version, PKG_VERSION);
     assert.equal(typeof state.pid, 'number');
     assert.match(state.loadedAt, /^\d{4}-\d{2}-\d{2}T/);
     for (const name of ['tools', 'guard', 'injection', 'turnStopping', 'postExecute']) {

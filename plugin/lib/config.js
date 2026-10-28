@@ -33,6 +33,27 @@ export const LEGACY_NAMES = Object.freeze({
   'whale-inject-state.json': FILES.injectState
 });
 
+/**
+ * 状态类文件（v0.5.3）：改了它们，说明「我的运行参数/窗口/额度」变了。
+ * 注入段会提醒一句「状态页更新了吗」——只提醒，不校验内容（插件看得见路径，看不见对错）。
+ */
+export const STATE_FILE_PATTERNS = Object.freeze([
+  /bili-whale\.config\.json$/i,
+  /[\\/]profiles[\\/]desktop[\\/]package\.json$/i,
+  /[\\/]dsh-bili-whale[\\/]lib[\\/]scheduler\.js$/i,
+  /[\\/](?:dsh-leno-ledger|dsh-ledger)[\\/]plugin[\\/]package\.json$/i,
+]);
+
+/** 这个路径算不算「状态类文件」；算就返回文件名（给提示用），不算返回空串 */
+export function stateFileOf(filePath) {
+  const p = String(filePath ?? '').replace(/\\/g, '/');
+  if (!p) return '';
+  for (const re of STATE_FILE_PATTERNS) {
+    if (re.test(p)) return p.slice(p.lastIndexOf('/') + 1);
+  }
+  return '';
+}
+
 /** 默认忽略：跑备份闸时直接跳过（`fnmatch` 语义的极简子集：`*` 只匹配一段） */
 export const DEFAULT_IGNORE = Object.freeze([
   '.git',

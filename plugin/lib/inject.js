@@ -23,9 +23,14 @@ export function createInjection(store) {
       const turnLedger = Number(turn.ledger) | 0;
       const turnHot = turnEdits > 0 && turnLedger === 0 && store.withinDays(turn.t, 1);
 
-      if (undone.length === 0 && (hasEvent || !store.sayDir) && errors < 3 && !turnHot) return '';
-
+      // v0.5.3：上回合写过「状态类文件」（窗口/额度/版本），提醒一句去更新状态页。
+      //   一天只提醒一次；只提醒，不校验状态页内容。
       const state = store.injectState();
+      const stateFiles = Array.isArray(turn.stateFiles) ? turn.stateFiles.filter((n) => typeof n === 'string' && n) : [];
+      const stateHot = stateFiles.length > 0 && store.withinDays(turn.t, 1) && state['state-warned'] !== today;
+
+      if (undone.length === 0 && (hasEvent || !store.sayDir) && errors < 3 && !turnHot && !stateHot) return '';
+
       const nowMs = store.now().getTime();
       const fresh = [];
       for (const row of [...undone].reverse()) {
@@ -41,6 +46,9 @@ export function createInjection(store) {
         `【账房】改${counts.edits} 备${counts.backups} | 今日事件：${store.sayDir ? (hasEvent ? '有' : '无') : '（未启用）'}${flag}`,
       ];
       if (turnHot) lines.push(`· 上回合：改了${turnEdits}个文件，一笔账没记`);
+      if (stateHot && lines.length < 5) {
+        lines.push(`· 改过状态类文件（${stateFiles.slice(0, 2).join('、')}），状态页更新了吗？`);
+      }
       for (const item of fresh) lines.push(`· 未做：${item.text}`);
       if (store.sayDir && !hasEvent && lines.length < 5) {
         lines.push(`· 今日还没有 ${store.sayDir}/${today}-*.md（发帖记录）`);
@@ -48,10 +56,12 @@ export function createInjection(store) {
       const zero = store.zeroRefRules(7).length;
       if (zero > 0 && lines.length < 5) lines.push(`· 近7天0引用的规矩：${zero} 条`);
 
-      if (fresh.length > 0) {
+      if (fresh.length > 0 || stateHot) {
         for (const item of fresh) state[item.key] = new Date(nowMs).toISOString();
+        if (stateHot) state['state-warned'] = today; // 一天只提醒一次
         const cutoff = nowMs - 7 * DAY_MS;
         for (const [key, value] of Object.entries(state)) {
+          if (key === 'state-warned') continue;
           const ms = Date.parse(String(value));
           if (Number.isNaN(ms) || ms < cutoff) delete state[key];
         }

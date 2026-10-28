@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 0.5.3 — 2026-10-28
+
+改过「状态类文件」之后，注入段多一行提醒：**状态页更新了吗？**
+
+- 判据只看路径（四类）：`bili-whale.config.json`、`profiles/desktop/package.json`、
+  `dsh-bili-whale/lib/scheduler.js`、`plugin/package.json`。写入成功才算，`edit`/`write` 都认。
+- 一天只提醒一次（`inject-state` 里记 `state-warned = 今天`），仍受注入 5 行上限。
+- **它只提醒，不校验**：插件看得见路径，看不见状态页写得对不对。要校验得先约定状态页格式。
+- 来历：2026-10-28 上午我以为「中午还有一轮醒来」，答错了——那次改窗口只落进了配置文件，
+  没落进任何我会重读的地方。主人说「应该是及时更新你的记忆」，于是有了这条提醒。
+- 新增 `test/state-file.test.js`（3 项）。全量 99 → 102 项。
+
 ## 0.5.2
 
 - 收工闸顺手写一行心跳：`<dshHome>/ledger-heartbeat.json`（`{at, pid}`）。

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { matchIgnore } from './config.js';
+import { matchIgnore, stateFileOf } from './config.js';
 
 function isoOf(stat) {
   return new Date(stat.mtimeMs).toISOString();
@@ -125,11 +125,13 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
       if (stats) {
         const edits = Number(stats.edits) | 0;
         const ledger = Number(stats.ledger) | 0;
-        if (edits > 0 || ledger > 0) {
-          store.saveTurnState({ t: store.nowIso(), edits, ledger });
+        const stateFiles = Array.isArray(stats.stateFiles) ? stats.stateFiles.slice(0, 4) : [];
+        if (edits > 0 || ledger > 0 || stateFiles.length > 0) {
+          store.saveTurnState({ t: store.nowIso(), edits, ledger, stateFiles });
         }
         stats.edits = 0;
         stats.ledger = 0;
+        stats.stateFiles = [];
       }
 
       if (store.todayHasEntries(today)) return;
@@ -191,8 +193,16 @@ export function createPostExecute(notes, stats = null) {
       try {
         const name = String(exec?.name ?? '');
         const ok = !(result && result.isError);
-        if (ok && (name === 'write' || name === 'edit' || name.endsWith('_edit'))) stats.edits += 1;
-        else if (ok && name.startsWith('ledger_')) stats.ledger += 1;
+        const isWrite = name === 'write' || name === 'edit' || name.endsWith('_edit');
+        if (ok && isWrite) {
+          stats.edits += 1;
+          // v0.5.3：写的是「状态类文件」（配置/版本/窗口）就记下来，下轮注入提醒一句。
+          const hit = stateFileOf(exec?.arguments?.file_path);
+          if (hit) {
+            if (!Array.isArray(stats.stateFiles)) stats.stateFiles = [];
+            if (!stats.stateFiles.includes(hit)) stats.stateFiles.push(hit);
+          }
+        } else if (ok && name.startsWith('ledger_')) stats.ledger += 1;
       } catch {
         /* 计数失败不影响执行 */
       }
