@@ -108,6 +108,9 @@ export function createBackupGuard({ store, config, notes }) {
  * 同一 turn 只敲一次，两次 steer 之间至少间隔 minIntervalMs（默认 1 小时）。
  */
 export function createTurnStopper({ store, config, now = () => Date.now(), stats = null }) {
+  // 2026-10-29（B10）：这个实例有没有写过「醒」。插件每次 apply 一份，宿主重启即重置——
+  // 「进程/实例重启」就是一次新醒，正是要的粒度；放实例里也让测试互不干扰。
+  let wokeThisProcess = false;
   // 2026-10-27：顺手写一行心跳，给别的插件（bili-whale 的「N 天没表态」）用。
   //   只写时间戳，不参与账目；写失败不算错，也不影响下面任何判断。
   try {
@@ -146,10 +149,18 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
           const p2 = (x) => String(x).padStart(2, '0');
           const base = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
           const file = path.join(config.l1Dir, `${today}.mdl`);
+          fs.mkdirSync(config.l1Dir, { recursive: true });
+          // 2026-10-29（B10 沉默要留痕）：每个进程第一次收工时写一行「醒」。
+          // 「没被叫醒」和「醒了没做事」在账上长得一模一样——这一行是那段空白的头。
+          // 写在计数行之前，所以它是同一分钟里的 #1。
+          if (!wokeThisProcess) {
+            const w = `${stampWithSeq(file, base)} 醒 | 进程第一轮（pid ${process.pid}）`;
+            fs.appendFileSync(file, `${w}\n`, 'utf8');
+            wokeThisProcess = true;
+          }
           // 2026-10-29（架构 T2）：同分钟落多行必须有序号，否则先后分不出、因果判不了。
           const stamp = stampWithSeq(file, base);
           const line = `${stamp} 改${c.edits}文 / 备${c.backups} / 判断${c.judged} / 事件${hasEvent ? '有' : '无'}`;
-          fs.mkdirSync(config.l1Dir, { recursive: true });
           // 2026-10-29（③去噪）：数值没变就不写——同一份计数重复几十行不是流水，是噪音。
           let sameCounts = false;
           try {

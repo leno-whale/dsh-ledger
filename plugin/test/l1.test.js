@@ -35,7 +35,24 @@ test('收工闸往 L1 写一行，格式固定', () => {
   assert.equal(files.length, 1);
   const lines = fs.readFileSync(path.join(l1Dir, files[0]), 'utf8').trim().split('\n');
   assert.ok(lines.length >= 1);
-  assert.match(lines[0], LINE_RE);
+  // 第一行现在是「醒」（每个实例只写一次），计数行在它后面
+  assert.match(lines[0], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}#1 醒 \| 进程第一轮/);
+  const counter = lines.find((l) => LINE_RE.test(l));
+  assert.ok(counter, '没有计数行：' + lines.join(' / '));
+});
+
+test('同一实例第二次收工不再写「醒」', () => {
+  const l1Dir = path.join(HOME, 'L1-wake');
+  const handlers = {};
+  plugin.apply(fakeCtx(handlers, []), { l1Dir });
+  handlers['agent/turn-stopping']({});
+  handlers['agent/turn-stopping']({});
+  handlers['agent/turn-stopping']({});
+
+  const files = fs.readdirSync(l1Dir).filter((f) => f.endsWith('.mdl'));
+  const lines = fs.readFileSync(path.join(l1Dir, files[0]), 'utf8').trim().split('\n');
+  const wakes = lines.filter((l) => / 醒 \| /.test(l));
+  assert.equal(wakes.length, 1, '醒只能写一行，实际：' + wakes.join(' / '));
 });
 
 test('ledger_l1 追加一行（默认 kind=note）', async () => {
