@@ -10,7 +10,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const GATE_BYTES = 800 * 1024;
+// 2026-10-31 01:52 主人把闸从 800 KB 提到 2000 KB（原话：「现在把闸提到2000KB」）。
+// 记一句实话：800 KB 是我按「谨慎」挑的，量过的是 267 KB（裁后）与 1 MB 出头（裁前）两档，
+// 2 MB 这档没有实测样本。闸高了省事，离红线也更近——真撞了，就把数字改回来。
+export const GATE_BYTES = 2000 * 1024;
 
 /** `C:\Users\A\proj` → `--C-Users-A-proj--`（DSH 会话目录的编码规则） */
 export function encodeProjectDir(cwd) {
