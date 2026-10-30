@@ -44,15 +44,32 @@ export function findSessionFile(dshHome, cwd) {
 
 /**
  * 读当前会话的字节数。只做 stat，不解压。
- * 依次试 cwd、workspaceRoot（插件进程的 cwd 不一定是工作区），都不行返回 null。
+ *
+ * 2026-10-31 修：不能再「按 cwd 顺序取第一个命中的」。GUI 进程的 cwd 是
+ * `~\.dsh\profiles\desktop`，那个项目目录里躺着一份 13:31 的旧会话（175 KB），
+ * 于是闸一直报 175 KB，而真正在写的那份已经 927 KB —— 仪器先坏，读数就没意义。
+ * 现在的规矩：**谁最近还在写，就是谁**。cwd 命中只是候选之一，mtime 说了算；
+ * 全都超过新鲜窗口时，才退回按 cwd 命中的那份（项目对得上，只是这会儿没人写）。
  */
 export function readSession(dshHome, ...cwds) {
+  const nowMs = Date.now();
+  const fresh = 30 * 60 * 1000;
+  const candidates = [];
   for (const cwd of cwds) {
     if (!cwd) continue;
     const found = findSessionFile(dshHome, cwd);
-    if (found) return found;
+    if (found) candidates.push({ ...found, fromCwd: true });
   }
-  return null;
+  const newest = pickNewestSession(dshHome);
+  if (newest) candidates.push({ ...newest, fromCwd: false });
+  if (!candidates.length) return null;
+
+  const freshOnes = candidates.filter((c) => nowMs - c.mtimeMs <= fresh);
+  if (freshOnes.length) {
+    return freshOnes.sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+  }
+  const byCwd = candidates.filter((c) => c.fromCwd).sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+  return byCwd ?? null;
 }
 
 /**
@@ -61,6 +78,13 @@ export function readSession(dshHome, ...cwds) {
  * 但只认「最近还在写」的（默认 30 分钟内），否则宁可报读不到，也不拿别人的会话凑数。
  */
 export function findNewestSession(dshHome, { withinMs = 30 * 60 * 1000, nowMs = Date.now() } = {}) {
+  const best = pickNewestSession(dshHome);
+  if (!best) return null;
+  return nowMs - best.mtimeMs <= withinMs ? best : null;
+}
+
+/** 全盘挑 mtime 最新的那份会话日志（不做新鲜度判断） */
+export function pickNewestSession(dshHome) {
   const base = path.join(dshHome, 'sessions');
   let projects;
   try {
@@ -89,8 +113,7 @@ export function findNewestSession(dshHome, { withinMs = 30 * 60 * 1000, nowMs = 
       }
     }
   }
-  if (!best) return null;
-  return nowMs - best.mtimeMs <= withinMs ? best : null;
+  return best;
 }
 
 /** 一行状态（常态） */

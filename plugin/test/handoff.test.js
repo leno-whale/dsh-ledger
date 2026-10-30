@@ -49,12 +49,15 @@ test('会话闸 S2: 多个会话取 mtime 最新的那个；读不到返回 null
   }
 });
 
-test('会话闸 S3: readSession 依次试多个 cwd（插件进程 cwd 不一定是工作区）', () => {
+test('会话闸 S3: readSession 认 cwd 命中的那份；cwd 全不中时兜底仍在写的那份', () => {
   const env = makeEnv();
   try {
     plantSession(env.dshHome, 'C:\\real-ws', 'bili-whale', 2048);
     assert.equal(readSession(env.dshHome, 'C:\\elsewhere', 'C:\\real-ws').bytes, 2048);
-    assert.equal(readSession(env.dshHome, 'C:\\elsewhere'), null);
+    // 2026-10-31：cwd 一个都不中，也不许报 0——刚写过的会话就是当前会话
+    const fallback = readSession(env.dshHome, 'C:\\elsewhere');
+    assert.equal(fallback.bytes, 2048);
+    assert.equal(fallback.fromCwd, false);
   } finally {
     env.cleanup();
   }
@@ -143,6 +146,23 @@ test('会话闸 S8: cwd 对不上时兜底取「最近还在写」的那份；�
     const oldMs = Date.now() - 3 * 60 * 60 * 1000;
     fs.utimesSync(found.file, oldMs / 1000, oldMs / 1000);
     assert.equal(findNewestSession(env.dshHome), null);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('会话闸 S10: 旧仪器陷阱——cwd 里那份是十小时前的旧会话，真在写的那份在别处', () => {
+  const env = makeEnv();
+  try {
+    const now = Date.now();
+    // GUI 进程的 cwd 是 profiles\desktop：那里躺着一份 175 KB 的旧会话
+    plantSession(env.dshHome, 'C:\\Users\\HUAWEI\\.dsh\\profiles\\desktop', 'old', 175 * 1024, now - 10 * 3600 * 1000);
+    // 真正在写的是 whale-work 那个项目里的一份，刚写过
+    plantSession(env.dshHome, 'C:\\Users\\HUAWEI\\.dsh\\whale-work', 'bili-whale', 900 * 1024, now - 5000);
+
+    const picked = readSession(env.dshHome, 'C:\\Users\\HUAWEI\\.dsh\\profiles\\desktop');
+    assert.equal(picked.bytes, 900 * 1024, '应该取最近还在写的那份，而不是 cwd 里那份旧的');
+    assert.equal(picked.name, 'bili-whale');
   } finally {
     env.cleanup();
   }
