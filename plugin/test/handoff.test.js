@@ -66,8 +66,9 @@ test('会话闸 S3: readSession 认 cwd 命中的那份；cwd 全不中时兜底
 test('会话闸 S4: 三行文案——常态、到闸写成动作、刚裁过', () => {
   const small = { bytes: 300 * 1024 };
   const big = { bytes: GATE_BYTES };
-  assert.equal(sessionLine(small), '【会话】300 KB / 闸 2000 KB');
-  assert.match(gateLine(big), /^【会话·到闸】2000 KB ≥ 2000 KB → 这一轮先说三件：/);
+  assert.equal(sessionLine(small), '【会话】300 KB / 闸 10000 KB');
+  const gateKb = Math.round(GATE_BYTES / 1024);
+  assert.match(gateLine(big), new RegExp(`^【会话·到闸】${gateKb} KB ≥ ${gateKb} KB → 这一轮先说三件：`));
   assert.match(gateLine(big), /trim-session --turns=30 --install/);
   assert.match(gateLine(big), /ledger_handoff letter/);
   assert.match(gateLine(big), /schedule_create after_seconds=300/);
@@ -87,7 +88,7 @@ test('会话闸 S5: ledger_handoff status 报字节；没有会话时说实话�
 
     plantSession(env.dshHome, env.workspaceRoot, 'bili-whale', 300 * 1024);
     const hit = await tool.execute({ action: 'status' });
-    assert.equal(hit.text, '会话 300 KB / 闸 2000 KB');
+    assert.equal(hit.text, '会话 300 KB / 闸 10000 KB');
   } finally {
     env.cleanup();
   }
@@ -97,7 +98,7 @@ test('会话闸 S6: letter 落骨架到 自我\\归档，reply 追加在最新�
   const env = makeEnv();
   try {
     const tool = toolByName(build(env), 'ledger_handoff');
-    const letter = await tool.execute({ action: 'letter', cutTurns: 30, note: '闸 2000 KB' });
+    const letter = await tool.execute({ action: 'letter', cutTurns: 30, note: '闸 10000 KB' });
     assert.equal(letter.ok, true);
 
     const dir = path.join(env.workspaceRoot, '自我', '归档');
@@ -108,7 +109,7 @@ test('会话闸 S6: letter 落骨架到 自我\\归档，reply 追加在最新�
     assert.match(body, /## 一、你可能不记得的三件/);
     assert.match(body, /## 二、没做完的事/);
     assert.match(body, /对话会被裁，文件不会。/);
-    assert.match(body, /闸 2000 KB\n$/);
+    assert.match(body, /闸 10000 KB\n$/);
 
     const reply = await tool.execute({ action: 'reply' });
     assert.equal(reply.ok, true);
@@ -173,11 +174,11 @@ test('会话闸 S9: 注入段里真的出现【会话】那一行，且不超过
   try {
     plantSession(env.dshHome, env.workspaceRoot, 'bili-whale', 700 * 1024);
     const section = createInjection(env.store, env.config)();
-    assert.match(section, /【会话】700 KB \/ 闸 2000 KB/);
+    assert.match(section, /【会话】700 KB \/ 闸 10000 KB/);
     assert.ok(section.split('\n').length <= 5);
 
-    // 到闸时置顶换成动作句（闸 2000 KB，所以要造 2100 KB 才算到）
-    plantSession(env.dshHome, env.workspaceRoot, 'bili-whale', 2100 * 1024);
+    // 到闸时置顶换成动作句（闸 10000 KB，所以要造 10100 KB 才算到）
+    plantSession(env.dshHome, env.workspaceRoot, 'bili-whale', 10100 * 1024);
     const hot = createInjection(env.store, env.config)();
     assert.match(hot.split('\n')[0], /^【会话·到闸】/);
   } finally {
