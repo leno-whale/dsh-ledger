@@ -148,7 +148,7 @@ test('会话闸 S8: cwd 对不上时兜底取「最近还在写」的那份；�
   }
 });
 
-test('会话闸 S9: 注入段里真的出现【会话】那一行，且不超过 5 行', () => {
+test('会话闸 S9: 注入段里真的出现【会话】那一行，且不超过 5 行（重启后你该看到的那行）', () => {
   const env = makeEnv();
   try {
     plantSession(env.dshHome, env.workspaceRoot, 'bili-whale', 700 * 1024);
