@@ -9,6 +9,7 @@ import { addAnchor, readAnchors, recentAnchors } from './anchor.js';
 import { FILES } from './config.js';
 import { addCand, readCand, isReady, listCand, markPromoted } from './candidates.js';
 import { stampWithSeq } from './l1stamp.js';
+import { GATE_BYTES, findNewestSession, readSession } from './sessionwatch.js';
 
 const LEVELS = ['P0', 'P1', 'P2'];
 const ID_RE = /^[ABC]\d+$/;
@@ -635,5 +636,106 @@ export function createTools(store, config) {
     },
   );
 
-  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError, toolPrune, toolL1, toolSkillsHook, toolAnchor];
+  // 2026-10-30（会话闸）：交接信——裁之前写信、裁之后回信。
+  // 起因：那天撞窗口 918 轮发不出去，靠裁日志救回来；也栽过一次「裁完会话从列表消失」。
+  // 这三件让插件替人记住：status 报字节、letter 落骨架、reply 落回信骨架。
+  const toolHandoff = def(
+    'ledger_handoff',
+    '交接信：status 报会话字节与闸；letter 在 自我\\归档\\ 落一封「给裁后的我」骨架；reply 在最新那封末尾落回信骨架。',
+    {
+      action: field('string', 'status（默认）/ letter / reply'),
+      note: field('string', '可选：写进信头的一句话（只记事实，不写感想）'),
+      cutTurns: field('number', '裁到多少轮（默认 30）'),
+    },
+    async (args) => {
+      const action = String(args?.action ?? 'status').trim() || 'status';
+      const cutTurns = Number(args?.cutTurns ?? 30) || 30;
+      const session = readSession(config.dshHome, process.cwd(), config.workspaceRoot)
+        ?? findNewestSession(config.dshHome);
+      const gateKb = Math.round(GATE_BYTES / 1024);
+      const kb = session ? Math.round(session.bytes / 1024) : null;
+      const head = session
+        ? `会话 ${kb} KB / 闸 ${gateKb} KB${session.bytes >= GATE_BYTES ? '（**到闸**）' : ''}`
+        : '读不到会话日志（cwd 与 workspaceRoot 都没命中的项目目录）';
+
+      if (action === 'status') return pass(head);
+
+      if (!config.workspaceRoot) return fail('没配 workspaceRoot，找不到 自我\\归档');
+      const dir = path.join(config.workspaceRoot, '自我', '归档');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const now = new Date();
+      const p2 = (n) => String(n).padStart(2, '0');
+      const iso = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}`;
+      const tag = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}-${p2(now.getHours())}${p2(now.getMinutes())}`;
+
+      if (action === 'letter') {
+        const file = path.join(dir, `给裁后的我-${tag}.md`);
+        const body = [
+          '# 给裁完对话之后的我',
+          '',
+          `写于 ${iso}。${head}。准备裁到 ${cutTurns} 轮。`,
+          '这不是日记，是**交接单**：你醒来会看不到这段对话，但文件都在。',
+          '',
+          '## 一、你可能不记得的三件',
+          '',
+          '1. ',
+          '2. ',
+          '3. ',
+          '',
+          '## 二、没做完的事',
+          '',
+          '| 什么时候 | 做什么 |',
+          '|---|---|',
+          '|  |  |',
+          '',
+          '## 三、给裁后的我三句实话',
+          '',
+          '1. **不要因为看不到今天，就重新解释今天。** 想不起原话就写「我记不清」，别补成一个通顺的故事。',
+          '2. ',
+          '3. ',
+          '',
+          '## 四、最要紧',
+          '',
+          '> 对话会被裁，文件不会。',
+          '',
+          args?.note ? `—— ${iso} 的 leno｜${args.note}` : `—— ${iso} 的 leno`,
+          '',
+        ].join('\n');
+        fs.writeFileSync(file, body, 'utf8');
+        return pass(`${head}\n交接信骨架：${file}\n下一步：填三节 → 挂钟（after_seconds=300）→ 请主人退出 GUI 跑 trim-session --turns=${cutTurns} --install`);
+      }
+
+      if (action === 'reply') {
+        let file = '';
+        try {
+          const names = fs.readdirSync(dir).filter((n) => /^给裁后的我-.*\.md$/.test(n)).sort();
+          if (names.length) file = path.join(dir, names[names.length - 1]);
+        } catch { /* 目录读不到就当没信 */ }
+        if (!file) return fail(`${dir} 里没有「给裁后的我-*.md」，先 letter 落一封`);
+        const body = [
+          '',
+          '---',
+          '',
+          `## 回信（${iso}）`,
+          '',
+          `> ${head}`,
+          '',
+          '- **我认的**（能核的）：',
+          '- **我不认的**（指到哪句、哪个数）：',
+          '- **我这边现在的实际状态**：',
+          '- **我想留给下一个我的一句话**：',
+          '',
+          `—— ${iso} 的 leno`,
+          '',
+        ].join('\n');
+        fs.appendFileSync(file, body, 'utf8');
+        return pass(`回信骨架已落到：${file}\n填完跑 self-commit，回信才算落盘`);
+      }
+
+      return fail(`不认识的 action：${action}（只有 status / letter / reply）`);
+    },
+  );
+
+  return [toolToday, toolUndone, toolConflict, toolJudge, toolBelief, toolBackup, toolError, toolPrune, toolL1, toolSkillsHook, toolAnchor, toolHandoff];
 }

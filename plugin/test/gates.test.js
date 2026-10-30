@@ -157,12 +157,14 @@ test('v0.3/S10: 今天账空时 steer 取消收工，同一 turn 只敲一次', 
   }
 });
 
-test('v0.3/S10: 今天有 change/backup/判断/错误/冲突 任一，都不再 steer', () => {
+test('v0.3/S10: 今天有 change/backup/判断/冲突 任一，都不再 steer', () => {
+  // 2026-10-30：把「错误」从这个列表里拿掉了。
+  //   以前「今天有一条 error」就算有账；但 error 是「被顶」，不等于「进了 L₂」——
+  //   被顶了却没立锚时，收工闸现在会拦一次（见下面那条新用例）。
   const cases = [
     (store) => store.appendManifest({ path: 'C:\\x.md', kind: 'change', sha256: 'a', size: 1, mtime: '' }),
     (store) => store.appendManifest({ path: 'C:\\x.md', kind: 'backup', sha256: 'a', size: 1, mtime: '', backup: 'C:\\x.bak' }),
     (store) => store.appendJsonl(store.criteriaLogFile, { t: store.nowIso(), id: 'B1', why: '判断' }),
-    (store) => store.recordError({ text: '错', source: 'test', level: 'P1' }),
     (store) => store.appendJsonl(store.conflictsFile, { t: store.nowIso(), topic: '分歧' }),
   ];
   for (const makeEntry of cases) {
@@ -224,6 +226,39 @@ test('S15: 收工闸拿不到 agent 时写错误账并放行，不抛错', () =>
     const errors = env.store.errorRows();
     assert.equal(errors.length, 1);
     assert.equal(errors[0].source, 'turn-gate');
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('2026-10-30: 被顶过而锚 0 条时，收工闸拦一次（以前只写不拦）', () => {
+  const env = makeEnv();
+  try {
+    env.store.recordError({ text: '被顶了一条', source: 'test', level: 'P1' });
+    const stopper = createTurnStopper({ store: env.store, config: env.config });
+    const agent = { steers: [], steer(message) { this.steers.push(message); } };
+    stopper({ agent, turn: 1 });
+    assert.equal(agent.steers.length, 1, '被顶了却没锚，必须拦一次');
+    assert.match(agent.steers[0].content[0].text, /写一条锚/);
+
+    // 一天只拦一次：同一实例再收工，不再敲第二遍
+    stopper({ agent, turn: 2 });
+    assert.equal(agent.steers.length, 1, '同一天不重复拦');
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('2026-10-30: 跳过检查不算「被顶」，不该触发锚的拦截', () => {
+  const env = makeEnv();
+  try {
+    env.store.recordError({
+      text: '今天只是跳过', source: 'test', level: 'P2', type: 'skipped-check',
+    });
+    const stopper = createTurnStopper({ store: env.store, config: env.config });
+    const agent = { steers: [], steer(message) { this.steers.push(message); } };
+    stopper({ agent, turn: 1 });
+    assert.equal(agent.steers.length, 0, '跳过 ≠ 被顶');
   } finally {
     env.cleanup();
   }

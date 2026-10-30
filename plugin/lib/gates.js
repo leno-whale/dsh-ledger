@@ -10,6 +10,36 @@ function isoOf(stat) {
 }
 
 /**
+ * 成长期放宽（2026-10-30，主人授权）。
+ *
+ * 规矩：放宽＝「到期自动收回」的默认，不是「到时候我判断要不要收」。
+ * 所以条件写在文件里、带 expires；**过了日期就当它不存在**。
+ * 需要我主动做的事是「续期」，而不是「记得收回」——后者我一定做不到。
+ *
+ * 文件放在 L1 目录的上一级（即 <workspaceRoot>\自我\放宽.json），不用改配置。
+ * 格式：{ "relaxations": [ { id, what, by, expires } ] }
+ */
+export function relaxationOf(l1Dir, nowMs = Date.now()) {
+  try {
+    if (!l1Dir) return [];
+    const file = path.join(path.dirname(l1Dir), '放宽.json');
+    if (!fs.existsSync(file)) return [];
+    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const list = Array.isArray(j) ? j : Array.isArray(j?.relaxations) ? j.relaxations : [];
+    return list
+      .filter((r) => r && typeof r.id === 'string' && typeof r.expires === 'string')
+      .filter((r) => {
+        // 到期日当天仍有效，次日起失效（避免「11-13 当天算不算」的含糊）
+        const end = new Date(`${r.expires}T23:59:59`);
+        return Number.isFinite(end.getTime()) && end.getTime() >= nowMs;
+      })
+      .map((r) => r.id);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * 备份闸（S10/S11/S12）。
  * - 只拦 write / edit（本版本没有 multi_edit）。
  * - 目标不存在：放行，manifest 记 kind:create。
@@ -180,14 +210,42 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
             const errFile = path.join(store.dataDir, FILES.errors);
             const errToday = fs.existsSync(errFile)
               ? fs.readFileSync(errFile, 'utf8').split('\n').filter(Boolean).filter((l) => {
-                  try { return String(JSON.parse(l).t ?? '').startsWith(today); } catch { return false; }
+                  try {
+                    const row = JSON.parse(l);
+                    // 2026-10-30：跳过检查本身也是一条 error 行，但「跳过」不是「被顶」。
+                    // 不排除的话，越是老实跳过的人越会被这条闸拦住——跳过机制就废了。
+                    return String(row.t ?? '').startsWith(today) && row.type !== 'skipped-check';
+                  } catch { return false; }
                 }).length
               : 0;
             const anchorsToday = readAnchors(config.anchorFile).filter((a) => String(a.t ?? '').startsWith(today)).length;
             const body = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-            if (errToday > 0 && anchorsToday === 0 && !body.includes('⚠ 对账')) {
-              const s2 = stampWithSeq(file, base);
-              fs.appendFileSync(file, `${s2} ⚠ 对账：今天被顶 ${errToday} 次，锚 0 条——被顶了没进 L₂\n`, 'utf8');
+            if (errToday > 0 && anchorsToday === 0) {
+              if (!body.includes('⚠ 对账')) {
+                const s2 = stampWithSeq(file, base);
+                fs.appendFileSync(file, `${s2} ⚠ 对账：今天被顶 ${errToday} 次，锚 0 条——被顶了没进 L₂\n`, 'utf8');
+              }
+              // 2026-10-30：以前只写不拦——写了三天，锚还是 0 条。改成拦一次。
+              //   收工前必须先落一条锚；一天只拦一次（key 按天），免得变成噪音。
+              const akey = `anchor:${today}`;
+              if (!steeredTurns.has(akey) && agent && typeof agent.steer === 'function') {
+                steeredTurns.add(akey);
+                const relaxed = relaxationOf(config.l1Dir).includes('anchor-single-event');
+                const tail = relaxed
+                  ? '成长期放宽：单次事件也可以立，但 src 里必须写「单次」（11-13 复审，没被第二次顶过的删掉）。'
+                  : '严版：只立被顶过第二次的；单次事件先记进 L1，等它被顶第二次再立。';
+                agent.steer({
+                  id: store.randomId(),
+                  role: 'user',
+                  content: [{
+                    type: 'text',
+                    text: `leno-ledger: 今天被顶 ${errToday} 次，锚 0 条。收工前先写一条锚（ledger_anchor，三必填：hit=谁顶的、changed=改了我哪一次动作、src=出处）。${tail}`,
+                  }],
+                  source: { kind: 'leno-ledger' },
+                });
+                lastSteerAt = now();
+                return;
+              }
             }
           } catch { /* 对账失败不影响收工 */ }
         }
