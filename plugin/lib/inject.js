@@ -1,5 +1,6 @@
 import { DAY_MS, sha256Text, truncate } from './store.js';
 import { GATE_BYTES, findNewestSession, gateLine, readSession, sessionLine, trimmedLine } from './sessionwatch.js';
+import { windowLine, windowState } from './clock.js';
 
 /**
  * 每轮注入（S17/S18/S19）。
@@ -32,6 +33,18 @@ export function createInjection(store, config = {}) {
       const state = store.injectState();
       const stateFiles = Array.isArray(turn.stateFiles) ? turn.stateFiles.filter((n) => typeof n === 'string' && n) : [];
       const stateHot = stateFiles.length > 0 && store.withinDays(turn.t, 1) && state['state-warned'] !== today;
+
+      // ---- 窗（2026-10-31）：现在能不能说话 ----
+      // 四窗见 自我\时间表.json 与 架构.md §16。表默认跟着 workspaceRoot 走，
+      // 这样测试里的临时工作区读不到表 = 没有这一行，不会把真表带进单测。
+      let windowRow = '';
+      try {
+        const table = config.clockTable
+          || (config.workspaceRoot ? path.join(config.workspaceRoot, '自我', '时间表.json') : undefined);
+        windowRow = table ? windowLine(windowState({ table })) : '';
+      } catch {
+        /* 没表 / 表坏了就当没有窗 */
+      }
 
       // ---- 会话闸（v0.6.10）----
       // 只 stat，不解压：轮数要解 200 多帧，每轮都做太贵（主人 2026-10-30 定的）。
@@ -101,7 +114,7 @@ export function createInjection(store, config = {}) {
         store.saveInjectState(state);
       }
 
-      return [...sessionLines, ...lines].slice(0, 5).join('\n');
+      return [...(windowRow ? [windowRow] : []), ...sessionLines, ...lines].slice(0, 5).join('\n');
     } catch (error) {
       try {
         store.recordError({
