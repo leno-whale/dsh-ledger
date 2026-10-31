@@ -92,6 +92,14 @@ export const DEFAULTS = Object.freeze({
   timeZone: null,
   /** 每轮把账注入系统提示；关掉后只能用 ledger_today 手动查 */
   inject: true,
+  /**
+   * v0.7.0：只在这些会话里干活（会话 id，支持 `*` 通配）。
+   * 空数组＝所有会话都管（向后兼容）；写了就只认点名的会话。
+   * 为什么：靠 cwd/mtime 猜「哪一份会话是我的」，猜错了整本账记的都是别人的。
+   */
+  sessions: [],
+  /** 认不出会话 id 时怎么办：run＝照旧管（默认，宿主字段改名不至于让插件整体哑掉），skip＝不管 */
+  sessionUnknown: 'run',
   /** 单文件备份上限 */
   maxBackupBytes: 10 * 1024 * 1024,
   /** 备份保留天数（0＝不按时间清理） */
@@ -128,6 +136,13 @@ function asPositiveInt(value, fallback) {
 
 function asNonEmptyString(value, fallback) {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback;
+}
+
+/** 枚举值：不在允许表里就退回默认（配置写错不许让插件整段哑掉） */
+function asEnum(value, allowed, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const key = String(value).trim().toLowerCase();
+  return allowed.includes(key) ? key : fallback;
 }
 
 function asStringArray(value, fallback) {
@@ -238,6 +253,8 @@ export function resolveConfig(raw = {}) {
     maxSkipsPerDay: asPositiveInt(input.maxSkipsPerDay, DEFAULTS.maxSkipsPerDay),
     timeZone: asNonEmptyString(input.timeZone, asNonEmptyString(env.TZ, systemTimeZone())),
     inject: asBool(input.inject, DEFAULTS.inject),
+    sessions: asStringArray(input.sessions, DEFAULTS.sessions),
+    sessionUnknown: asEnum(input.sessionUnknown, ['run', 'skip'], DEFAULTS.sessionUnknown),
     maxBackupBytes: asPositiveInt(input.maxBackupBytes, DEFAULTS.maxBackupBytes),
     backupKeepDays: asPositiveInt(input.backupKeepDays, DEFAULTS.backupKeepDays),
     backupMaxTotalMb: asPositiveInt(input.backupMaxTotalMb, DEFAULTS.backupMaxTotalMb),

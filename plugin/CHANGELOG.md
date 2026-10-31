@@ -1,3 +1,17 @@
+## 0.7.0 — 2026-10-31（按指定会话触发：不是我的会话，别替它记账）
+
+同一个宿主进程里开着几个会话时，账房分不清「这是谁的回合」：段文本、收工闸、L1 流水对**每一个**会话都照写。0.6.15 挡的是「宿主装插件目录里的旧会话」，挡不住「同一进程里另一个正经会话」。
+
+主人 2026-10-31 定的方向：**按指定会话触发**——配置里点名，没点名的会话一声不响。
+
+- 新增 `lib/session-target.js`：`sessionIdOf()` 从 context/payload 里挖会话 id，`matchSession()` 支持 `*` 通配，`isTargeted()` 判定，`describeTargets()` 给人看。
+- 会话 id 的来源核对过宿主源码，不是猜的：`assembleContextFor(agent)` 返回 `{ agent, scope: agent }`，`system-prompt` 组装时 `section.text(context)` 收到的正是它；`agent/turn-stopping` 的 `payload.agent` 里也有 `agent.session.id`。
+- 配置新增 `sessions`（默认 `[]`）与 `sessionUnknown`（默认 `'run'`）。**默认行为与 0.6.15 一致**：空名单＝照旧全管；认不出会话时也照旧管。想收窄就点名，想彻底安静就配 `sessionUnknown: 'skip'`。
+- `lib/inject.js` 的段函数改成收 `context`，第一句就是门；`lib/gates.js` 的收工闸同样先过门（不写 L1、不 steer）。心跳仍在工厂里写，不受门影响——它是「插件活着」的证据，不是账。
+- 新增 `test/session-target.test.js` 七个用例：挖 id / 通配 / 空名单 / 注入段只给点名的会话 / 收工闸对别的会话一声不响 / 点名的会话照旧被敲 / `skip` 时认不出就不管。
+
+一句话：**认错人比不认人更贵**——给别人的会话记我的账，账本就从"证据"变成"噪声"。
+
 ## 0.6.15 — 2026-10-31（宿主目录不是我的工作区）
 
 那晚注入段报「【交接】刚裁过（4290→175 KB）」，我差点照着它写交接信。查下去：**我根本没被裁过。**
