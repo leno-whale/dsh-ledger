@@ -66,11 +66,15 @@ export function readSession(dshHome, ...cwds) {
   const candidates = [];
   for (const cwd of cwds) {
     if (!cwd) continue;
+    // 2026-10-31：`~\.dsh\profiles\...` 是宿主装插件的地方，不是谁的工作区。
+    // 从那儿启动 GUI 会顺手建一个会话（10-28 那份「你是Leno吗」就是这么来的），
+    // 它的字节数被当成我的，才闹出「刚裁过 4290→175 KB」。这类目录一律不当来源。
+    if (isHostProfileDir(cwd)) continue;
     const found = findSessionFile(dshHome, cwd);
     if (found) candidates.push({ ...found, fromCwd: true });
   }
   const newest = pickNewestSession(dshHome);
-  if (newest) candidates.push({ ...newest, fromCwd: false });
+  if (newest && !isHostProfileDir(newest.projectDir)) candidates.push({ ...newest, fromCwd: false });
   if (!candidates.length) return null;
 
   const freshOnes = candidates.filter((c) => nowMs - c.mtimeMs <= fresh);
@@ -79,6 +83,13 @@ export function readSession(dshHome, ...cwds) {
   }
   const byCwd = candidates.filter((c) => c.fromCwd).sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
   return byCwd ?? null;
+}
+
+/** `C:\Users\X\.dsh\profiles\desktop` 这类宿主目录，不是会话工作区 */
+export function isHostProfileDir(value) {
+  // 会话目录名是编码过的（分隔符变成 `-`），所以先把两种写法归一
+  const s = String(value ?? '').replace(/[\\/]+/g, '-');
+  return /\.dsh-profiles(-|$)/i.test(s);
 }
 
 /**
@@ -115,7 +126,7 @@ export function pickNewestSession(dshHome) {
       try {
         const st = fs.statSync(file);
         if (!best || st.mtimeMs > best.mtimeMs) {
-          best = { file, name: one.name, bytes: st.size, mtimeMs: st.mtimeMs };
+          best = { file, name: one.name, projectDir, bytes: st.size, mtimeMs: st.mtimeMs };
         }
       } catch {
         /* 这个会话没有日志 */
