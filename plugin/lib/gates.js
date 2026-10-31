@@ -5,6 +5,8 @@ import { matchIgnore, stateFileOf, FILES } from './config.js';
 import { readAnchors } from './anchor.js';
 import { stampWithSeq } from './l1stamp.js';
 import { isTargeted, sessionIdOf } from './session-target.js';
+import { readSession } from './sessionwatch.js';
+import { countCommitments, extractAssistantText } from './commitwords.js';
 
 function isoOf(stat) {
   return new Date(stat.mtimeMs).toISOString();
@@ -159,6 +161,25 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
       const agent = payload?.agent;
       const turn = payload?.turn;
       const today = store.today();
+
+      // b）2026-10-31（承诺）：这一轮说了「明天／等会」吗？说了几个钟？
+      //    架构 §8 给动作集合补了「承诺」之后，当晚我还是连说四次「明天回你」，钟一个没挂。
+      //    原因不是不知道——**看见了却没触发**。所以交给机器数，不靠记性。
+      try {
+        const schedules = Number(stats?.schedules) | 0;
+        if (stats) stats.schedules = 0;
+        const missFile = path.join(config.dshHome, 'ledger-commit-miss.json');
+        const session = readSession(config.dshHome, process.cwd(), config.workspaceRoot);
+        const text = session ? extractAssistantText(session.file) : '';
+        const c = countCommitments(text);
+        if (c.count > 0 && schedules === 0) {
+          fs.mkdirSync(path.dirname(missFile), { recursive: true });
+          fs.writeFileSync(missFile, `${JSON.stringify({ at: new Date(now()).toISOString(), n: c.count, hits: c.hits.slice(0, 2) })}\n`, 'utf8');
+        } else if (schedules > 0) {
+          // 挂了钟 → 旧提醒作废，别让它一直顶着
+          try { fs.unlinkSync(missFile) } catch { /* 没有就算了 */ }
+        }
+      } catch { /* 数不出来不算错，不许把收工闸搞挂 */ }
 
       // a）先记账再判要不要 steer：本回合改了文件却一笔账没记，留给下一轮注入去说。
       if (stats) {
@@ -324,6 +345,8 @@ export function createPostExecute(notes, stats = null) {
             if (!stats.stateFiles.includes(hit)) stats.stateFiles.push(hit);
           }
         } else if (ok && name.startsWith('ledger_')) stats.ledger += 1;
+        // 2026-10-31（承诺）：这一轮挂没挂钟，收工时要拿它跟「说了几次明天」对账。
+        if (ok && name === 'schedule_create') stats.schedules = (Number(stats.schedules) | 0) + 1;
       } catch {
         /* 计数失败不影响执行 */
       }

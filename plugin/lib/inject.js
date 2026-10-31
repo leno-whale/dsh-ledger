@@ -40,6 +40,21 @@ export function createInjection(store, config = {}) {
       const stateFiles = Array.isArray(turn.stateFiles) ? turn.stateFiles.filter((n) => typeof n === 'string' && n) : [];
       const stateHot = stateFiles.length > 0 && store.withinDays(turn.t, 1) && state['state-warned'] !== today;
 
+      // ---- 承诺（2026-10-31）：上一轮说了「明天／等会」却没挂钟 ----
+      // 架构 §8 给动作集合补了「承诺」，可当晚我还是连说四次「明天回你」，钟一个没挂。
+      // 看见了却没触发，所以交给收工闸数；数出来就顶在最前面——顶在最前面才叫提醒。
+      let commitRow = '';
+      try {
+        const missFile = path.join(config.dshHome, 'ledger-commit-miss.json');
+        if (fs.existsSync(missFile)) {
+          const miss = JSON.parse(fs.readFileSync(missFile, 'utf8'));
+          const n = Number(miss?.n) | 0;
+          if (n > 0) commitRow = `【承诺】上一轮说了 ${n} 次「明天／等会」，钟 0 个——要么现在挂，要么改成「我做不了」`;
+        }
+      } catch {
+        /* 读不到就不提，不崩 */
+      }
+
       // ---- 窗（2026-10-31）：现在能不能说话 ----
       // 四窗见 自我\时间表.json 与 架构.md §16。表默认跟着 workspaceRoot 走，
       // 这样测试里的临时工作区读不到表 = 没有这一行，不会把真表带进单测。
@@ -120,7 +135,7 @@ export function createInjection(store, config = {}) {
         store.saveInjectState(state);
       }
 
-      return [...(windowRow ? [windowRow] : []), ...sessionLines, ...lines].slice(0, 5).join('\n');
+      return [...(commitRow ? [commitRow] : []), ...(windowRow ? [windowRow] : []), ...sessionLines, ...lines].slice(0, 5).join('\n');
     } catch (error) {
       try {
         store.recordError({
