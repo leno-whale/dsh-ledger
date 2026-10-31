@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { DAY_MS, sha256Text, truncate } from './store.js';
 import { GATE_BYTES, findNewestSession, gateLine, readSession, sessionLine, trimmedLine } from './sessionwatch.js';
+import { isTargeted, sessionIdOf } from './session-target.js';
 import { windowLine, windowState } from './clock.js';
 
 /**
@@ -13,8 +14,11 @@ import { windowLine, windowState } from './clock.js';
  * 读字节、闸 800 KB、砍到 30 轮。会话行永远在（1 行），其余照旧按需出现。
  */
 export function createInjection(store, config = {}) {
-  return function lenoLedgerPromptSection() {
+  return function lenoLedgerPromptSection(context) {
     try {
+      // v0.7.0：只认点名的会话。sessions 为空＝全部会话（旧行为不变）。
+      // 这里拿到的是宿主 assembleContextFor() 给的 { agent, scope }，会话 id 在 agent.session.id。
+      if (!isTargeted(config.sessions, sessionIdOf(context), { unknown: config.sessionUnknown })) return '';
       if (store.config && store.config.inject === false) return '';
       const today = store.today();
       const counts = store.counts(today);

@@ -74,6 +74,8 @@ dsh plugin --profile desktop add dsh-leno-ledger
   "maxBackupBytes": 10485760,
   "backupKeepDays": 30,
   "backupMaxTotalMb": 500,
+  "sessions": [],                        // 按指定会话触发：空=所有会话都管；写了就只对点名（* 通配）的会话记账
+  "sessionUnknown": "run",               // 有 sessions 却认不出会话时：run=照旧管，skip=一律不管
   "ignore": [".git", "node_modules", ".env", "*.pem", "*.key"]
 }
 ```

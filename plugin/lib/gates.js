@@ -4,6 +4,7 @@ import path from 'node:path';
 import { matchIgnore, stateFileOf, FILES } from './config.js';
 import { readAnchors } from './anchor.js';
 import { stampWithSeq } from './l1stamp.js';
+import { isTargeted, sessionIdOf } from './session-target.js';
 
 function isoOf(stat) {
   return new Date(stat.mtimeMs).toISOString();
@@ -152,6 +153,9 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
   let lastSteerAt = 0;
   return function lenoLedgerTurnStopping(payload) {
     try {
+      // v0.7.0：没点名的会话一律不碰——不写 L1、不写心跳以外的状态、不 steer。
+      // 同一进程里开着几个会话时，账房只对点名的那个负责。
+      if (!isTargeted(config.sessions, sessionIdOf(payload), { unknown: config.sessionUnknown })) return;
       const agent = payload?.agent;
       const turn = payload?.turn;
       const today = store.today();
