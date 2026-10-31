@@ -13,7 +13,7 @@ import {
 } from '../lib/sessionwatch.js';
 import { createInjection } from '../lib/inject.js';
 import { createTools } from '../lib/tools.js';
-import { makeEnv, toolByName } from './helpers.js';
+import { makeEnv, toolByName, writeWorkspaceFile } from './helpers.js';
 
 function build(env) {
   return new Map(createTools(env.store, env.config).map((tool) => [tool.name, tool]));
@@ -181,6 +181,24 @@ test('会话闸 S9: 注入段里真的出现【会话】那一行，且不超过
     plantSession(env.dshHome, env.workspaceRoot, 'bili-whale', 10100 * 1024);
     const hot = createInjection(env.store, env.config)();
     assert.match(hot.split('\n')[0], /^【会话·到闸】/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('会话闸 S11: 有表时注入段真的出现【窗】行（0.6.13 漏了 import path，窗行一直是空的）', () => {
+  const env = makeEnv();
+  try {
+    // 表放在 workspaceRoot 下：注入段默认从 <ws>\\自我\\时间表.json 读
+    const table = {
+      interact: { weekday: [['12:00', '14:00'], ['18:00', '23:30']], weekend: [['08:00', '23:30']] },
+      wake: { daily: [['01:00', '03:00']] },
+      quota: { weekday: 6, weekend: 10 },
+    };
+    writeWorkspaceFile(env, '自我/时间表.json', JSON.stringify(table));
+    const section = createInjection(env.store, env.config)();
+    assert.match(section, /【窗】/, `注入段里该有窗行，实际是：${section}`);
+    assert.match(section, /额度 (6|10)/);
   } finally {
     env.cleanup();
   }

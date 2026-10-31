@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { DAY_MS, sha256Text, truncate } from './store.js';
 import { GATE_BYTES, findNewestSession, gateLine, readSession, sessionLine, trimmedLine } from './sessionwatch.js';
 import { windowLine, windowState } from './clock.js';

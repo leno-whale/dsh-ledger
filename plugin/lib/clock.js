@@ -43,7 +43,10 @@ export function loadTable(file = DEFAULT_TABLE) {
  */
 export function windowState({ table = DEFAULT_TABLE, now = new Date() } = {}) {
   const t = typeof table === 'string' ? loadTable(table) : table;
-  if (!t) return { kind: 'quiet', weekend: isWeekend(now), windows: [], quota: null, nextOpen: null, leftMin: -1 };
+  // 没有表就**什么都不说**（返回 null），不要编一句「静默」——
+  // 2026-10-31 踩过：表不存在时它输出「【窗·静默】…下一个交互窗 null」，
+  // 等于拿一个空表替我宣布「现在不能说话」。宁可没有这一行。
+  if (!t) return null;
 
   const weekend = isWeekend(now);
   const nowMin = now.getHours() * 60 + now.getMinutes();
