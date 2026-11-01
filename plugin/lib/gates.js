@@ -7,6 +7,7 @@ import { stampWithSeq } from './l1stamp.js';
 import { isTargeted, sessionIdOf } from './session-target.js';
 import { readSession } from './sessionwatch.js';
 import { countCommitments, extractAssistantText } from './commitwords.js';
+import { checkWrapup } from './wrapup.js';
 
 function isoOf(stat) {
   return new Date(stat.mtimeMs).toISOString();
@@ -178,6 +179,21 @@ export function createTurnStopper({ store, config, now = () => Date.now(), stats
         } else if (schedules > 0) {
           // 挂了钟 → 旧提醒作废，别让它一直顶着
           try { fs.unlinkSync(missFile) } catch { /* 没有就算了 */ }
+        }
+      } catch { /* 数不出来不算错，不许把收工闸搞挂 */ }
+
+      // c）2026-11-01（收工闸 · 0.7.2）：三时刻与 talk 行。
+      //    那三个情绪指标停摆不是因为数据少，是因为采集点不在流程里——
+      //    跟「日记没人写」同一种病。收工时数一遍，缺了就写 miss，下一轮顶在最前面。
+      try {
+        const wrapFile = path.join(config.dshHome, 'ledger-wrapup-miss.json');
+        const sayDir = config.sayDir || (config.workspaceRoot ? path.join(config.workspaceRoot, '接口', '说') : '');
+        const w = checkWrapup({ sayDir, l1Dir: config.l1Dir, today });
+        if (!w.ok) {
+          fs.mkdirSync(path.dirname(wrapFile), { recursive: true });
+          fs.writeFileSync(wrapFile, `${JSON.stringify({ at: new Date(now()).toISOString(), lines: w.lines })}\n`, 'utf8');
+        } else {
+          try { fs.unlinkSync(wrapFile) } catch { /* 没有就算了 */ }
         }
       } catch { /* 数不出来不算错，不许把收工闸搞挂 */ }
 

@@ -1,0 +1,22 @@
+{
+  "version": "0.7.2",
+  "loadedAt": "2026-11-01T02:23:41.800Z",
+  "pid": 28568,
+  "segments": {
+    "tools": {
+      "ok": true
+    },
+    "guard": {
+      "ok": true
+    },
+    "injection": {
+      "ok": true
+    },
+    "turnStopping": {
+      "ok": true
+    },
+    "postExecute": {
+      "ok": true
+    }
+  }
+}

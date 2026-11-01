@@ -1,0 +1,1 @@
+{"skills":[{"name":"甲","state":"alive","hook":"say","when":"白饭馆","usage":"第一句\n第二句"},{"name":"乙","state":"alive","hook":"say","when":"B站","usage":"乙的用法"},{"name":"丙","state":"dead","hook":"say","usage":"死的"},{"name":"丁","state":"alive","hook":"judge","usage":"丁的用法"},{"name":"戊","state":"alive","hook":"say","usage":"戊"},{"name":"己","state":"alive","hook":"say","usage":"己"}]}

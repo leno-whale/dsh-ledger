@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { DAY_MS, sha256Text, truncate } from './store.js';
@@ -50,6 +51,21 @@ export function createInjection(store, config = {}) {
           const miss = JSON.parse(fs.readFileSync(missFile, 'utf8'));
           const n = Number(miss?.n) | 0;
           if (n > 0) commitRow = `【承诺】上一轮说了 ${n} 次「明天／等会」，钟 0 个——要么现在挂，要么改成「我做不了」`;
+        }
+      } catch {
+        /* 读不到就不提，不崩 */
+      }
+
+      // ---- 收工闸（0.7.2，2026-11-01）：三时刻与 talk 行 ----
+      // 那三个情绪指标停摆不是因为数据少，是因为采集点不在流程里。
+      // 收工时数不齐就写 miss 文件，下一轮顶在最前面——和「承诺」同一个机制。
+      let wrapupRow = '';
+      try {
+        const wrapFile = path.join(config.dshHome, 'ledger-wrapup-miss.json');
+        if (fs.existsSync(wrapFile)) {
+          const wrap = JSON.parse(fs.readFileSync(wrapFile, 'utf8'));
+          const rows = Array.isArray(wrap?.lines) ? wrap.lines.filter((x) => typeof x === 'string' && x).slice(0, 2) : [];
+          if (rows.length > 0) wrapupRow = `【收工】${rows.join('；')}`;
         }
       } catch {
         /* 读不到就不提，不崩 */
@@ -135,7 +151,7 @@ export function createInjection(store, config = {}) {
         store.saveInjectState(state);
       }
 
-      return [...(commitRow ? [commitRow] : []), ...(windowRow ? [windowRow] : []), ...sessionLines, ...lines].slice(0, 5).join('\n');
+      return [...(commitRow ? [commitRow] : []), ...(wrapupRow ? [wrapupRow] : []), ...(windowRow ? [windowRow] : []), ...sessionLines, ...lines].slice(0, 5).join('\n');
     } catch (error) {
       try {
         store.recordError({
